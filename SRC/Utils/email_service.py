@@ -37,12 +37,12 @@ async def send_verification_email(email: str, token: str) -> None:
     }
 
     payload = {
-        "sender": {"email": settings.SENDER_EMAIL, "name": "Tashfeer System"},
+        "sender": {"email": settings.SENDER_EMAIL, "name": "RxTract System"},
         "to": [{"email": email}],
         "subject": "Verify Your Email Address",
         "htmlContent": (
             "<html><body>"
-            "<h2>Welcome to Tashfeer!</h2>"
+            "<h2>Welcome to RxTract!</h2>"
             f"<p>Click <a href='{verification_link}'>here</a> to verify your email address.</p>"
             "<p>If you did not create an account, you can safely ignore this email.</p>"
             "</body></html>"

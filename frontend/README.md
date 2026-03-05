@@ -1,6 +1,6 @@
-<![CDATA[# Tashfeer Frontend
+<![CDATA[# RxTract Frontend
 
-> A modern, accessible React SPA for the Tashfeer platform — prescription analysis, RAG-powered document Q&A, and semantic search.
+> A modern, accessible React SPA for the RxTract platform — prescription analysis, RAG-powered document Q&A, and semantic search.
 
 ---
 
@@ -37,7 +37,7 @@
 
 ### Prerequisites
 - **Node.js** 18+ and **pnpm**
-- Running Tashfeer API backend (see [root README](../README.md))
+- Running RxTract API backend (see [root README](../README.md))
 
 ### Quick Start
 
@@ -59,7 +59,7 @@ Create a `.env` file (optional — defaults work for local development):
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `VITE_API_URL` | Tashfeer API base URL | `http://localhost:8000/api/v1` |
+| `VITE_API_URL` | RxTract API base URL | `http://localhost:8000/api/v1` |
 
 ### Build for Production
 
@@ -72,8 +72,8 @@ Output is generated in the `dist/` directory, ready to be served by Nginx or any
 ### Docker
 
 ```bash
-docker build -t tashfeer-frontend .
-docker run -p 80:80 tashfeer-frontend
+docker build -t rxtract-frontend .
+docker run -p 80:80 rxtract-frontend
 ```
 
 ---
@@ -120,7 +120,7 @@ frontend/
 
 ## 🔌 API Integration
 
-The frontend communicates with the Tashfeer API. All data routes require JWT authentication.
+The frontend communicates with the RxTract API. All data routes require JWT authentication.
 
 ### Authentication Flow
 ```
@@ -156,5 +156,5 @@ The frontend is fully responsive with:
 
 ## 📝 License
 
-Same as the main Tashfeer project — Apache License 2.0.
+Same as the main RxTract project — Apache License 2.0.
 ]]>

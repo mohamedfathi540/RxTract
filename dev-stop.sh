@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ─────────────────────────────────────────────────────────
-# Tashfeer — Stop Development Environment
+# RxTract — Stop Development Environment
 # ─────────────────────────────────────────────────────────
 
 RED='\033[0;31m'
@@ -14,8 +14,8 @@ DIM='\033[2m'
 NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PID_DIR="/tmp/tashfeer"
-LOG_DIR="/tmp/tashfeer/logs"
+PID_DIR="/tmp/rxtract"
+LOG_DIR="/tmp/rxtract/logs"
 
 step() {
     echo -e "\n${CYAN}${BOLD}▸ $1${NC}"
@@ -34,7 +34,7 @@ info() {
 }
 
 echo ""
-echo -e "${RED}${BOLD}  ■ Stopping Tashfeer Development Environment${NC}"
+echo -e "${RED}${BOLD}  ■ Stopping RxTract Development Environment${NC}"
 echo ""
 
 # ─────────────────────────────────────────────────────────
@@ -107,5 +107,5 @@ rm -f "$PID_DIR"/*.pid 2>/dev/null || true
 success "PID files and logs cleaned"
 
 echo ""
-echo -e "${GREEN}${BOLD}  ✨ Tashfeer stopped. Goodbye! ✨${NC}"
+echo -e "${GREEN}${BOLD}  ✨ RxTract stopped. Goodbye! ✨${NC}"
 echo ""

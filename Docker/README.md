@@ -1,4 +1,4 @@
-<![CDATA[# Tashfeer — Docker Deployment
+<![CDATA[# RxTract — Docker Deployment
 
 > Complete containerized deployment with application server, databases, reverse proxy, and monitoring stack.
 

@@ -1,4 +1,4 @@
-<![CDATA[# Tashfeer — Database Migrations
+<![CDATA[# RxTract — Database Migrations
 
 This directory contains the [Alembic](https://alembic.sqlalchemy.org/) migration scripts for managing the PostgreSQL database schema.
 

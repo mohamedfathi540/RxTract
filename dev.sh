@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ─────────────────────────────────────────────────────────
-# Tashfeer Development Environment
+# RxTract Development Environment
 # Hybrid mode: Docker for infra, local for app
 # ─────────────────────────────────────────────────────────
 
@@ -20,8 +20,8 @@ NC='\033[0m'
 
 # Directories
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PID_DIR="/tmp/tashfeer"
-LOG_DIR="/tmp/tashfeer/logs"
+PID_DIR="/tmp/rxtract"
+LOG_DIR="/tmp/rxtract/logs"
 BACKEND_PID="$PID_DIR/backend.pid"
 FRONTEND_PID="$PID_DIR/frontend.pid"
 
@@ -40,17 +40,17 @@ CLEANING_UP=false
 banner() {
     echo ""
     echo -e "${MAGENTA}${BOLD}"
-    echo "  ╔══════════════════════════════════════════════════════════╗"
-    echo "  ║                                                          ║"
-    echo "  ║   ███████╗███████╗██╗  ██╗██████╗ ███████╗███████╗  ║"
-    echo "  ║   ██╔════╝██╔════╝██║  ██║██╔══██╗██╔════╝██╔════╝  ║"
-    echo "  ║   █████╗  █████╗  ███████║██████╔╝█████╗  ███████╗  ║"
-    echo "  ║   ██╔══╝  ██╔══╝  ██╔══██║██╔══██╗██╔══╝  ╚════██║  ║"
-    echo "  ║   ██║     ███████╗██║  ██║██║  ██║███████╗███████║  ║"
-    echo "  ║   ╚═╝     ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝  ║"
-    echo "  ║                                                          ║"
-    echo "  ║            🔥 Development Environment 🔥                ║"
-    echo "  ╚══════════════════════════════════════════════════════════╝"
+    echo "  ╔═══════════════════════════════════════════════════════════════════════╗"
+    echo "  ║                                                                       ║"
+    echo "  ║   ██████╗ ██╗  ██╗████████╗██████╗  █████╗  ██████╗████████╗  ║"
+    echo "  ║   ██╔══██╗╚██╗██╔╝╚══██╔══╝██╔══██╗██╔══██╗██╔════╝╚══██╔══╝  ║"
+    echo "  ║   ██████╔╝ ╚███╔╝    ██║   ██████╔╝███████║██║        ██║     ║"
+    echo "  ║   ██╔══██╗ ██╔██╗    ██║   ██╔══██╗██╔══██║██║        ██║     ║"
+    echo "  ║   ██║  ██║██╔╝ ██╗   ██║   ██║  ██║██║  ██║╚██████╗   ██║     ║"
+    echo "  ║   ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝   ╚═╝     ║"
+    echo "  ║                                                                       ║"
+    echo "  ║               🔥 Development Environment 🔥                          ║"
+    echo "  ╚═══════════════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
     echo ""
 }
@@ -79,7 +79,7 @@ info() {
 }
 
 # ─────────────────────────────────────────────────────────
-# Kill any previous Tashfeer processes by PID file
+# Kill any previous RxTract processes by PID file
 # ─────────────────────────────────────────────────────────
 kill_previous() {
     step "Cleaning up any previous sessions..."
@@ -123,7 +123,7 @@ cleanup() {
     trap '' SIGINT SIGTERM
 
     echo ""
-    step "Shutting down Tashfeer..."
+    step "Shutting down RxTract..."
 
     # Kill frontend
     if [ -f "$FRONTEND_PID" ]; then
@@ -158,7 +158,7 @@ cleanup() {
     # Clean up logs
     rm -rf "$LOG_DIR" 2>/dev/null || true
 
-    echo -e "\n${GREEN}${BOLD}  ✨ Tashfeer shut down cleanly. See you! ✨${NC}\n"
+    echo -e "\n${GREEN}${BOLD}  ✨ RxTract shut down cleanly. See you! ✨${NC}\n"
     exit 0
 }
 
@@ -313,7 +313,7 @@ done
 # ─────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}${BOLD}  ╔═══════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}${BOLD}  ║         🚀 Tashfeer is LIVE! 🚀                ║${NC}"
+echo -e "${GREEN}${BOLD}  ║         🚀 RxTract is LIVE! 🚀                ║${NC}"
 echo -e "${GREEN}${BOLD}  ╠═══════════════════════════════════════════════╣${NC}"
 echo -e "${GREEN}${BOLD}  ║${NC}                                               ${GREEN}${BOLD}║${NC}"
 echo -e "${GREEN}${BOLD}  ║${NC}  ${CYAN}Frontend${NC}     → ${WHITE}http://localhost:${PORT_FRONTEND}${NC}       ${GREEN}${BOLD}║${NC}"

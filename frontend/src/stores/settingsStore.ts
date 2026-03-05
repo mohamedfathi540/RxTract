@@ -59,7 +59,7 @@ export const useSettingsStore = create<SettingsState>()(
             setPrescriptionResult: (result) => set({ prescriptionResult: result }),
         }),
         {
-            name: 'tashfeer-settings',
+            name: 'rxtract-settings',
         }
     )
 );

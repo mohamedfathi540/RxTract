@@ -21,7 +21,7 @@ export function SettingsPage() {
           Settings
         </h2>
         <p className="text-sm text-text-secondary mt-1">
-          Configure your Tashfeer application
+          Configure your RxTract application
         </p>
       </div>
 
@@ -40,7 +40,7 @@ export function SettingsPage() {
               className="w-full px-4 py-2 bg-bg-tertiary border border-border rounded-md text-text-primary focus:outline-none focus:border-primary-600 transition-all"
             />
             <p className="text-xs text-text-muted mt-1">
-              The base URL for the Tashfeer API
+              The base URL for the RxTract API
             </p>
           </div>
 
@@ -146,10 +146,10 @@ export function SettingsPage() {
       {/* About */}
       <Card title="About">
         <div className="text-center py-4">
-          <h1 className="text-2xl font-bold text-text-primary mb-2">Tashfeer</h1>
+          <h1 className="text-2xl font-bold text-text-primary mb-2">RxTract</h1>
           <p className="text-text-secondary">RAG System</p>
           <p className="text-sm text-text-muted mt-4">
-            A modern frontend for the Tashfeer RAG API built with React and React
+            A modern frontend for the RxTract RAG API built with React and React
             Aria
           </p>
         </div>

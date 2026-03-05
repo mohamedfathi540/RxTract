@@ -96,7 +96,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
       >
         <div className="p-5 border-b border-border">
           <h1 className="text-xl font-semibold tracking-tight text-white">
-            Tashfeer
+            RxTract
           </h1>
           <p className="text-xs text-text-muted mt-0.5">
             Prescription Analyzer

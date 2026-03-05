@@ -1,6 +1,6 @@
-# Tashfeer API Reference
+# RxTract API Reference
 
-This document describes the REST API endpoints available in Tashfeer.
+This document describes the REST API endpoints available in RxTract.
 
 Base URL: `http://localhost:8000/api/v1`
 
@@ -16,7 +16,7 @@ Check if the API is running.
 
 ```json
 {
-  "app_name": "Tashfeer",
+  "app_name": "RxTract",
   "app_version": "0.1"
 }
 ```

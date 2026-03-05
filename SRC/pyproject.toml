@@ -1,5 +1,5 @@
 [project]
-name = "tashfeer"
+name = "rxtract"
 version = "0.1.0"
 description = "A Retrieval-Augmented Generation (RAG) system for document Q&A"
 readme = "README.md"

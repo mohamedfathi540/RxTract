@@ -1,4 +1,4 @@
-<![CDATA[# Tashfeer
+<![CDATA[# RxTract
 
 > **AI-Powered Prescription Analyzer & RAG System** — Upload prescriptions, get instant medicine analysis with real alternatives from the Egyptian Drug Authority (EDA), and ask questions about your documents using Retrieval-Augmented Generation.
 
@@ -113,8 +113,8 @@ flowchart TB
 #### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/mohamedfathi540/tashfeer.git
-cd tashfeer
+git clone https://github.com/mohamedfathi540/rxtract.git
+cd rxtract
 ```
 
 #### 2. Configure Environment
@@ -242,7 +242,7 @@ uv run python3 SRC/scripts/scrape_eda.py
 ## 📁 Project Structure
 
 ```
-tashfeer/
+rxtract/
 ├── SRC/                          # Backend — FastAPI Application
 │   ├── main.py                   # App entry point, middleware, router setup
 │   ├── Routes/                   # API endpoint definitions
@@ -333,7 +333,7 @@ tashfeer/
 
 ## 🌐 Self-Hosting Guide
 
-Turn any computer into a professional Tashfeer server using Cloudflare Tunnel.
+Turn any computer into a professional RxTract server using Cloudflare Tunnel.
 
 ### Phase 1: Hardware & OS
 
@@ -362,8 +362,8 @@ sudo apt-get update
 sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 # Clone and start
-git clone https://github.com/mohamedfathi540/tashfeer.git
-cd tashfeer/Docker
+git clone https://github.com/mohamedfathi540/rxtract.git
+cd rxtract/Docker
 # Configure your .env files in Docker/env/
 docker compose up -d --build
 ```
@@ -380,7 +380,7 @@ cloudflared tunnel --url http://localhost:80
 
 # For permanent setup:
 # 1. Create Cloudflare account → Zero Trust → Tunnels
-# 2. Public Hostname: tashfeer.yourdomain.com → HTTP → localhost:80
+# 2. Public Hostname: rxtract.yourdomain.com → HTTP → localhost:80
 ```
 
 ### Troubleshooting

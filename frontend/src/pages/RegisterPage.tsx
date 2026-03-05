@@ -49,7 +49,7 @@ export function RegisterPage() {
                 {/* Header */}
                 <div className="text-center mb-8">
                     <h1 className="text-3xl font-bold text-white tracking-tight">
-                        Tashfeer
+                        RxTract
                     </h1>
                     <p className="text-text-muted mt-1 text-sm">Create a new account</p>
                 </div>
