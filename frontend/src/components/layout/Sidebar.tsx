@@ -11,6 +11,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useAuthStore } from "../../stores/authStore";
 import { StatusBadge } from "../ui/StatusBadge";
 import { Button } from "../ui/Button";
+import { QuotaPanel } from "../ui/QuotaPanel";
 import { checkHealth } from "../../api/base";
 import { useState, useEffect } from "react";
 
@@ -126,6 +127,9 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
         </nav>
 
         <div className="p-3 border-t border-border space-y-3">
+          {/* Daily usage quotas */}
+          <QuotaPanel />
+
           {/* User info & logout */}
           <div className="flex items-center justify-between gap-2">
             <p

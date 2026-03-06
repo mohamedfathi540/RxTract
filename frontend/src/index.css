@@ -97,6 +97,22 @@ h3 {
   background: var(--color-primary-600);
 }
 
+/* Toast slide-up animation */
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.2s ease-out;
+}
+
 /* React Aria focus styles */
 .react-aria-Button {
   outline: none;

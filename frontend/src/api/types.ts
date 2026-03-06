@@ -127,3 +127,17 @@ export interface UploadedFile {
     status: 'pending' | 'uploading' | 'uploaded' | 'error';
     error?: string;
 }
+
+// Quota Types
+
+export interface QuotaUsage {
+    used: number;
+    limit: number;
+}
+
+export interface QuotaStatusResponse {
+    date: string;
+    uploads: QuotaUsage;
+    queries: QuotaUsage;
+    prescriptions: QuotaUsage;
+}

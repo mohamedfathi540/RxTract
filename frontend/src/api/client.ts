@@ -1,6 +1,8 @@
 import axios, { type AxiosInstance, type AxiosError } from 'axios';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useAuthStore } from '../stores/authStore';
+import { useToastStore } from '../stores/toastStore';
+import { useQuotaStore } from '../stores/quotaStore';
 
 // Create axios instance
 const createApiClient = (): AxiosInstance => {
@@ -39,6 +41,16 @@ const createApiClient = (): AxiosInstance => {
                     useAuthStore.getState().logout();
                     window.location.href = '/login';
                     return Promise.reject(new Error('Session expired. Please log in again.'));
+                }
+
+                // If 429 Too Many Requests, surface a clear rate-limit message
+                if (error.response.status === 429) {
+                    const data = error.response.data as { detail?: string };
+                    const msg = data?.detail || 'Rate limit exceeded. Please slow down and try again shortly.';
+                    useToastStore.getState().addToast(msg, 'warning');
+                    // Refresh quota display
+                    useQuotaStore.getState().fetchQuota();
+                    return Promise.reject(Object.assign(new Error(msg), { isRateLimit: true }));
                 }
 
                 const errorData = error.response.data as { signal?: string; Signal?: string; error?: string; detail?: string };
