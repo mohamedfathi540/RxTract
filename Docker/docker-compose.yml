@@ -1,166 +1,94 @@
 services:
-  #FASTAPI Application
-
-  fastapi:
+  # FastAPI Application
+  rxtract_fastapi:
     build:
       context: ..
       dockerfile: Docker/minirag/Dockerfile
-    container_name: fastapi
+    container_name: rxtract_fastapi
     ports:
-      - "8008:8000"
+      - "8009:8000"
     volumes:
-      - fastapi_data:/app/Assets
+      - rxtract_fastapi_data:/app/Assets
     networks:
-      - backend
+      - rxtract_backend
     restart: always
     depends_on:
-      pgvector:
+      rxtract_pgvector:
         condition: service_healthy
     env_file:
       - ./env/.env.app
     environment:
-      - POSTGRES_HOST=pgvector
+      - POSTGRES_HOST=rxtract_pgvector
       - POSTGRES_PORT=5432
     dns:
       - 8.8.8.8
       - 8.8.4.4
 
-  #Frontend Application
-  frontend:
+
+  # Frontend Application
+  rxtract_frontend:
     build:
       context: ../frontend
       dockerfile: Dockerfile
-    container_name: frontend
+    container_name: rxtract_frontend
     ports:
-      - "5173:80"
+      - "5174:80"
     restart: always
     networks:
-      - backend
+      - rxtract_backend
 
-  #Nginx Service
-  nginx:
+  # Nginx Service
+  rxtract_nginx:
     image: nginx:latest
-    container_name: nginx
+    container_name: rxtract_nginx
     ports:
-      - "8898:80"
+      - "8899:80"
     volumes:
       - ./Nginx/Default.conf:/etc/nginx/conf.d/Default.conf
     depends_on:
-      - fastapi
+      - rxtract_fastapi
     networks:
-      - backend
+      - rxtract_backend
     restart: always
 
-  #PostgreSQL (PGvector)
-
-  pgvector:
+  # PostgreSQL (PGvector)
+  rxtract_pgvector:
     image: pgvector/pgvector:0.8.0-pg17
-    container_name: pgvector
+    container_name: rxtract_pgvector
     ports:
-      - "5435:5432"
+      - "5436:5432"
     volumes:
-      - "pgvector:/var/lib/postgresql/data"
+      - "rxtract_pgvector_data:/var/lib/postgresql/data"
     env_file:
       - ./env/.env.postgres
     networks:
-      - backend
+      - rxtract_backend
     restart: always
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready  -U postgres" ]
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 60s
 
-  #Qdrant (Vector DB)
-
-  qdrant:
+  # Qdrant (Vector DB)
+  rxtract_qdrant:
     image: qdrant/qdrant:latest
-    container_name: qdrant
+    container_name: rxtract_qdrant
     ports:
-      - "6335:6333"
-      - "6336:6334"
+      - "6337:6333"
+      - "6338:6334"
     volumes:
-      - "qdrant_data:/qdrant/storage"
+      - "rxtract_qdrant_data:/qdrant/storage"
     networks:
-      - backend
-    restart: always
-
-  #Prometheus Monitoring
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: prometheus
-    ports:
-      - "9095:9090"
-    volumes:
-      - "prometheus_data:/prometheus"
-      - ./Prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-    networks:
-      - backend
-    restart: always
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.path=/prometheus"
-      - "--web.console.libraries=/etc/prometheus/console_libraries"
-      - "--web.console.templates=/etc/prometheus/consoles"
-      - "--web.enable-lifecycle"
-
-  #Grafana Visualization
-  grafana:
-    image: grafana/grafana:latest
-    container_name: grafana
-    ports:
-      - "3003:3000"
-    volumes:
-      - "grafana_data:/var/lib/grafana"
-    env_file:
-      - ./env/.env.grafana
-    depends_on:
-      - prometheus
-    networks:
-      - backend
-    restart: always
-
-  #Node Exporter for system metrics
-  node_exporter:
-    image: prom/node-exporter:latest
-    container_name: node_exporter
-    ports:
-      - "9105:9100"
-    volumes:
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /:/rootfs:ro
-    command:
-      - "--path.procfs=/host/proc"
-      - "--path.sysfs=/host/sys"
-      - "--path.rootfs=/rootfs"
-      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
-    networks:
-      - backend
-    restart: always
-
-  #PostgreSQL Exporter
-  postgres_exporter:
-    image: prometheuscommunity/postgres-exporter:latest
-    container_name: postgres_exporter
-    ports:
-      - "9188:9187"
-    env_file:
-      - ./env/.env.postgres-exporter
-    depends_on:
-      - pgvector
-    networks:
-      - backend
+      - rxtract_backend
     restart: always
 
 networks:
-  backend:
+  rxtract_backend:
     driver: bridge
 
 volumes:
-  fastapi_data:
-  pgvector:
-  qdrant_data:
-  prometheus_data:
-  grafana_data:
+  rxtract_fastapi_data:
+  rxtract_pgvector_data:
+  rxtract_qdrant_data:

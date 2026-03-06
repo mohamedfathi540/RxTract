@@ -16,10 +16,11 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
    
-COPY SRC/requirements.txt .
+COPY SRC/pyproject.toml .
 
 ENV UV_HTTP_TIMEOUT=120
-RUN uv add -r requirements.txt --system
+ENV UV_PROJECT_ENVIRONMENT=/usr/local
+RUN uv sync --no-dev --no-install-project
 
 COPY SRC/ .
 
@@ -35,4 +36,4 @@ ENTRYPOINT ["/enterypoint.sh"]
 
 
 #Command to run the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000","--workers","4"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

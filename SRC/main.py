@@ -52,7 +52,7 @@ async def startup_span():
         f"postgresql+asyncpg://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}"
         f"@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_MAIN_DB}"
     )
-    app.db_engine = create_async_engine(postgres_connection)
+    app.db_engine = create_async_engine(postgres_connection, pool_pre_ping=True)
     app.db_client = sessionmaker(
         app.db_engine,
         class_=AsyncSession,
