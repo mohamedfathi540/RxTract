@@ -257,6 +257,25 @@ class GeminiProvider(LLMInterface):
                         continue
                     return None
 
+                # Check if response was truncated due to token limit
+                finish_reason = None
+                if response.candidates and response.candidates[0].finish_reason:
+                    finish_reason = response.candidates[0].finish_reason
+                if finish_reason and str(finish_reason) in ("MAX_TOKENS", "FINISH_REASON_MAX_TOKENS", "2"):
+                    self.logger.warning(
+                        "Gemini OCR response truncated (finish_reason=%s, len=%d). Retrying with higher token limit...",
+                        finish_reason, len(response.text),
+                    )
+                    if attempt < retries:
+                        # Double the token limit for the retry
+                        generation_config = types.GenerateContentConfig(
+                            max_output_tokens=max_output_tokens * 2,
+                            temperature=temperature,
+                        )
+                        continue
+                    # Last attempt — return what we have
+                    self.logger.warning("Returning truncated OCR response after %d retries", retries)
+
                 return response.text
 
             except Exception as e:

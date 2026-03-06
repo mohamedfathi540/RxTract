@@ -307,18 +307,38 @@ class PrescriptionController(basecontroller):
         except json.JSONDecodeError as e:
             logger.error("Failed to parse vision OCR response: %s", e)
             logger.error("Raw text: %s", text[:500])
-            # Attempt to salvage truncated JSON by extracting ocr_text
+
+            # Attempt to salvage ocr_text from truncated JSON
+            ocr_text = ""
             match = re.search(r'"ocr_text"\s*:\s*"((?:[^"\\]|\\.)*)', text)
             if match:
                 ocr_text = match.group(1)
-                # Unescape JSON escapes like \n
                 try:
                     ocr_text = json.loads('"' + ocr_text + '"')
                 except json.JSONDecodeError:
                     pass
-                logger.info("Salvaged ocr_text from truncated response (len=%d)", len(ocr_text))
-                return [], ocr_text
-            return [], ""
+
+            # Attempt to salvage complete medicine entries from truncated JSON
+            medicines = []
+            for m in re.finditer(
+                r'\{\s*"name"\s*:\s*"(?P<name>[^"]+)"'
+                r'(?:.*?"active_ingredient"\s*:\s*"(?P<ai>[^"]+)")?'
+                r'(?:.*?"confidence_score"\s*:\s*[\d.]+)?'
+                r'\s*\}',
+                text,
+                re.DOTALL,
+            ):
+                name = m.group("name").strip()
+                ai = (m.group("ai") or "Unknown").strip()
+                if name:
+                    medicines.append({"name": name, "active_ingredient": ai})
+
+            if ocr_text or medicines:
+                logger.info(
+                    "Salvaged from truncated response: ocr_text(len=%d), %d medicines",
+                    len(ocr_text), len(medicines),
+                )
+            return medicines, ocr_text
 
     @staticmethod
     def _merge_medicines(list1: list, list2: list) -> list:
