@@ -120,6 +120,8 @@ async def analyze_prescription(request: Request, file: UploadFile):
             chunk_text = (
                 f"Medicine: {med['name']}\n"
                 f"Active Ingredient: {med.get('active_ingredient', 'Unknown')}\n"
+                f"Dosage: {med.get('dosage', 'Unknown')}\n"
+                f"Form: {med.get('form', 'Unknown')}\n"
             )
             chunk_records.append(
                 dataChunk(
@@ -128,6 +130,8 @@ async def analyze_prescription(request: Request, file: UploadFile):
                         "source": "prescription_ocr",
                         "medicine_name": med["name"],
                         "active_ingredient": med.get("active_ingredient", "Unknown"),
+                        "dosage": med.get("dosage", "Unknown"),
+                        "form": med.get("form", "Unknown"),
                     },
                     chunk_order=i + 1,
                     chunk_project_id=pid,
@@ -302,6 +306,8 @@ async def analyze_prescription_stream(request: Request, file: UploadFile):
                 chunk_text = (
                     f"Medicine: {med['name']}\n"
                     f"Active Ingredient: {med.get('active_ingredient', 'Unknown')}\n"
+                    f"Dosage: {med.get('dosage', 'Unknown')}\n"
+                    f"Form: {med.get('form', 'Unknown')}\n"
                 )
                 chunk_records.append(
                     dataChunk(
@@ -310,6 +316,8 @@ async def analyze_prescription_stream(request: Request, file: UploadFile):
                             "source": "prescription_ocr",
                             "medicine_name": med["name"],
                             "active_ingredient": med.get("active_ingredient", "Unknown"),
+                            "dosage": med.get("dosage", "Unknown"),
+                            "form": med.get("form", "Unknown"),
                         },
                         chunk_order=i + 1,
                         chunk_project_id=pid,

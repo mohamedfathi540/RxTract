@@ -294,6 +294,8 @@ class PrescriptionController(basecontroller):
                         "active_ingredient": m.get(
                             "active_ingredient", "Unknown"
                         ).strip(),
+                        "dosage": m.get("dosage", "Unknown").strip() if m.get("dosage") else "Unknown",
+                        "form": m.get("form", "Unknown").strip() if m.get("form") else "Unknown",
                     })
 
             logger.info(
@@ -323,6 +325,8 @@ class PrescriptionController(basecontroller):
             for m in re.finditer(
                 r'\{\s*"name"\s*:\s*"(?P<name>[^"]+)"'
                 r'(?:.*?"active_ingredient"\s*:\s*"(?P<ai>[^"]+)")?'
+                r'(?:.*?"dosage"\s*:\s*"(?P<dosage>[^"]+)")?'
+                r'(?:.*?"form"\s*:\s*"(?P<form>[^"]+)")?'
                 r'(?:.*?"confidence_score"\s*:\s*[\d.]+)?'
                 r'\s*\}',
                 text,
@@ -330,8 +334,15 @@ class PrescriptionController(basecontroller):
             ):
                 name = m.group("name").strip()
                 ai = (m.group("ai") or "Unknown").strip()
+                dosage = (m.group("dosage") or "Unknown").strip()
+                form = (m.group("form") or "Unknown").strip()
                 if name:
-                    medicines.append({"name": name, "active_ingredient": ai})
+                    medicines.append({
+                        "name": name,
+                        "active_ingredient": ai,
+                        "dosage": dosage,
+                        "form": form,
+                    })
 
             if ocr_text or medicines:
                 logger.info(
@@ -486,15 +497,25 @@ class PrescriptionController(basecontroller):
                         active_ing = m.get("active_ingredient")
                         if active_ing is None:
                             active_ing = "Unknown"
+                        dosage = m.get("dosage")
+                        if dosage is None:
+                            dosage = "Unknown"
+                        form = m.get("form")
+                        if form is None:
+                            form = "Unknown"
                         
                         result.append({
                             "name": m["name"].strip(),
                             "active_ingredient": str(active_ing).strip(),
+                            "dosage": str(dosage).strip(),
+                            "form": str(form).strip(),
                         })
                     elif isinstance(m, str) and m.strip():
                         result.append({
                             "name": m.strip(),
                             "active_ingredient": "Unknown",
+                            "dosage": "Unknown",
+                            "form": "Unknown",
                         })
                 logger.info(
                     "Extracted medicines: %s",
@@ -516,13 +537,21 @@ class PrescriptionController(basecontroller):
     async def _enrich_medicines(
         self, medicines_raw: List[dict]
     ) -> List[dict]:
-        """Enhance ingredients via OpenFDA and build Google search URLs."""
+        """Enhance ingredients via OpenFDA, build Google search URLs, extract dosage/form."""
 
         async def enrich(med: dict) -> dict:
             name = med["name"]
             active = med["active_ingredient"]
+            dosage = med.get("dosage", "Unknown")
+            form = med.get("form", "Unknown")
 
-            # 1. Fuzzy Match Correction
+            # Try to extract dosage/form from the raw name if not yet found
+            if dosage == "Unknown":
+                dosage = MedicineMatcher.extract_dosage_from_string(name)
+            if form == "Unknown":
+                form = MedicineMatcher.extract_form_from_string(name)
+
+            # 1. Fuzzy Match Correction (aggressive)
             corrected_name = self.medicine_matcher.find_best_match(name)
             if corrected_name:
                 logger.info(f"Fuzzy corrected '{name}' -> '{corrected_name}'")
@@ -546,6 +575,8 @@ class PrescriptionController(basecontroller):
             return {
                 "name": name,
                 "active_ingredient": active,
+                "dosage": dosage,
+                "form": form,
                 "image_url": image_url,
             }
 

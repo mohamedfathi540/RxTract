@@ -153,34 +153,50 @@ class MedicineMatcher:
         if canonical:
             self.ingredient_map[canonical.lower()] = ingredient
         
-    def find_best_match(self, query: str, threshold: int = 85) -> Optional[str]:
+    def find_best_match(self, query: str, threshold: int = 70) -> Optional[str]:
         """
         Find the best fuzzy match for the query.
+        Uses multiple matching strategies for aggressive correction.
         Returns the matched name if detection confidence >= threshold, else None.
         """
         if not query or len(query) < 3:
             return None
             
-        q_lower = query.lower()
+        q_lower = query.lower().strip()
+        # Strip trailing dosage info for matching (e.g., "Augmentin 625mg" -> "Augmentin")
+        q_clean = re.sub(r'\s*\d+\s*(mg|gm|g|ml|mcg|iu|%|units?)\s*(/\s*\d+\s*(mg|gm|g|ml|mcg))?\s*$', '', q_lower, flags=re.IGNORECASE).strip()
+        
+        # Direct exact match
         if q_lower in self.medicine_map:
             return self.medicine_map[q_lower]
+        if q_clean and q_clean in self.medicine_map:
+            return self.medicine_map[q_clean]
             
-        # Extract matches
-        # extractOne returns (match, score, index) or just (match, score) depending on version
-        # process.extractOne("query", choices)
+        # Try first word match (common for prescriptions: "Augmentin 1g" -> first word "augmentin")
+        first_word = q_clean.split()[0] if q_clean else q_lower.split()[0]
+        if first_word and len(first_word) >= 3 and first_word in self.medicine_map:
+            return self.medicine_map[first_word]
         
         try:
-            # Use token_set_ratio to avoid replacing short names like 'Safe' with huge strings
-            result = process.extractOne(query, self.medicines, scorer=fuzz.token_set_ratio)
+            # Strategy 1: token_set_ratio on full query (handles word reordering)
+            result = process.extractOne(q_clean or query, self.medicines, scorer=fuzz.token_set_ratio)
+            if result and len(result) >= 2 and result[1] >= threshold:
+                logger.info(f"Fuzzy Match (token_set): '{query}' -> '{result[0]}' (Score: {result[1]})")
+                return self.medicine_map.get(result[0].lower(), result[0])
             
-            if result:
-                if len(result) >= 2:
-                    match_name = result[0]
-                    score = result[1]
+            # Strategy 2: partial_ratio (handles substring matches, e.g., "Augmant" in "Augmentin")
+            result2 = process.extractOne(q_clean or query, self.medicines, scorer=fuzz.partial_ratio)
+            if result2 and len(result2) >= 2 and result2[1] >= 80:
+                logger.info(f"Fuzzy Match (partial): '{query}' -> '{result2[0]}' (Score: {result2[1]})")
+                return self.medicine_map.get(result2[0].lower(), result2[0])
+            
+            # Strategy 3: ratio on first word only (handles "Augmantin tab" -> "Augmentin")
+            if first_word and len(first_word) >= 4:
+                result3 = process.extractOne(first_word, self.medicines, scorer=fuzz.ratio)
+                if result3 and len(result3) >= 2 and result3[1] >= 75:
+                    logger.info(f"Fuzzy Match (first_word): '{query}' -> '{result3[0]}' (Score: {result3[1]})")
+                    return self.medicine_map.get(result3[0].lower(), result3[0])
                     
-                    if score >= 85: # Use high threshold for short string safety
-                        logger.info(f"Fuzzy Match: '{query}' -> '{match_name}' (Score: {score})")
-                        return self.medicine_map.get(match_name.lower(), match_name)
         except Exception as e:
             logger.error(f"Fuzzy match error for '{query}': {e}")
         
@@ -261,18 +277,18 @@ class MedicineMatcher:
                 start = max(0, i - 3)
                 for j in range(start, i):
                     w = words[j]
-                    if len(w) >= 4 and is_valid_name_part(w):
+                    if len(w) >= 3 and is_valid_name_part(w):
                         # Find matches in word_index
                         for index_w, meds in self.word_index.items():
-                            if w == index_w or fuzz.ratio(w, index_w) >= 90:
+                            if w == index_w or fuzz.ratio(w, index_w) >= 80:
                                 best_med = min(meds, key=len)
                                 candidates.add(best_med)
 
-        # 2. General scan of all words >= 5 length against the word index
+        # 2. General scan of all words >= 4 length against the word index
         for w in words:
-            if len(w) >= 5 and is_valid_name_part(w):
+            if len(w) >= 4 and is_valid_name_part(w):
                 for index_w, meds in self.word_index.items():
-                    if w == index_w or fuzz.ratio(w, index_w) >= 95:
+                    if w == index_w or fuzz.ratio(w, index_w) >= 85:
                         best_med = min(meds, key=len)
                         candidates.add(best_med)
 
@@ -283,12 +299,95 @@ class MedicineMatcher:
             canonical = self.medicine_map.get(cand.lower(), cand)
             if canonical not in seen:
                 active = self.get_active_ingredient(canonical) or "Unknown"
+                # Try to extract dosage and form from nearby text
+                dosage, form = self.extract_dosage_and_form(text, canonical)
                 results.append({
                     "name": canonical,
-                    "active_ingredient": active
+                    "active_ingredient": active,
+                    "dosage": dosage,
+                    "form": form,
                 })
                 seen.add(canonical)
 
         logger.info(f"Algorithmic extraction found {len(results)} medicines.")
         return results
+
+    @staticmethod
+    def extract_dosage_from_string(text: str) -> str:
+        """
+        Extract dosage/strength from a string (e.g., '100mg', '1g', '250mg/5ml').
+        """
+        if not text:
+            return "Unknown"
+        # Match patterns like: 100mg, 1g, 500 mg, 250mg/5ml, 0.5g, 20mcg, 1000iu, 5%
+        pattern = r'(\d+(?:\.\d+)?\s*(?:mg|gm|g|ml|mcg|iu|%|units?)(?:\s*/\s*\d+(?:\.\d+)?\s*(?:mg|gm|g|ml|mcg))?)'
+        match = re.search(pattern, text, re.IGNORECASE)
+        return match.group(1).strip() if match else "Unknown"
+
+    @staticmethod
+    def extract_form_from_string(text: str) -> str:
+        """
+        Extract pharmaceutical form from a string.
+        """
+        if not text:
+            return "Unknown"
+        text_lower = text.lower()
+        form_map = {
+            r'\b(?:tab|tabs|tablet|tablets)\b': 'tablet',
+            r'\b(?:cap|caps|capsule|capsules)\b': 'capsule',
+            r'\b(?:syr|syrup)\b': 'syrup',
+            r'\b(?:susp|suspension)\b': 'suspension',
+            r'\b(?:supp|suppository|suppositories|sub)\b': 'suppository',
+            r'\b(?:amp|amps|ampoule|ampoules)\b': 'ampoule',
+            r'\b(?:inj|injection)\b': 'injection',
+            r'\b(?:cream)\b': 'cream',
+            r'\b(?:oint|ointment)\b': 'ointment',
+            r'\b(?:gel)\b': 'gel',
+            r'\b(?:lotion)\b': 'lotion',
+            r'\b(?:drops?|eye\s*drops?|ear\s*drops?)\b': 'drops',
+            r'\b(?:sach|sachets?)\b': 'sachet',
+            r'\b(?:spray|nasal\s*spray)\b': 'spray',
+            r'\b(?:inhaler)\b': 'inhaler',
+            r'\b(?:vial|vials)\b': 'vial',
+            r'\b(?:solution|sol)\b': 'solution',
+            r'\b(?:topical|top)\b': 'topical',
+            r'\b(?:patch|patches)\b': 'patch',
+            r'\b(?:powder)\b': 'powder',
+            r'\b(?:sp|s\.p\.?|s\.p)\b': 'suppository',
+        }
+        for pattern, form_name in form_map.items():
+            if re.search(pattern, text_lower):
+                return form_name
+        return "Unknown"
+
+    def extract_dosage_and_form(self, full_text: str, medicine_name: str) -> Tuple[str, str]:
+        """
+        Search the full OCR text for dosage and form near a medicine name.
+        """
+        dosage = "Unknown"
+        form = "Unknown"
+        
+        if not full_text or not medicine_name:
+            return dosage, form
+        
+        # Find the medicine name in the text and look at nearby context
+        name_lower = medicine_name.lower().split()[0]  # Use first word
+        text_lower = full_text.lower()
+        
+        idx = text_lower.find(name_lower)
+        if idx == -1:
+            # Try fuzzy find
+            for i in range(len(text_lower) - len(name_lower) + 1):
+                chunk = text_lower[i:i + len(name_lower)]
+                if fuzz.ratio(name_lower, chunk) >= 80:
+                    idx = i
+                    break
+        
+        if idx >= 0:
+            # Get context window around the medicine name (100 chars after)
+            context = full_text[idx:idx + 100]
+            dosage = self.extract_dosage_from_string(context)
+            form = self.extract_form_from_string(context)
+        
+        return dosage, form
 

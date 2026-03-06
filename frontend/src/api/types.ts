@@ -92,6 +92,8 @@ export interface ChatMessage {
 export interface MedicineInfo {
     name: string;
     active_ingredient: string;
+    dosage: string | null;
+    form: string | null;
     image_url: string | null;
 }
 

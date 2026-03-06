@@ -365,13 +365,31 @@ export function PrescriptionPage() {
                                             </span>
                                             {med.name}
                                         </h3>
-                                        <div className="mt-2">
-                                            <p className="text-xs font-medium text-text-muted uppercase tracking-wider">
-                                                Active Ingredient
-                                            </p>
-                                            <p className="text-text-secondary mt-0.5">
-                                                {med.active_ingredient || "Not found"}
-                                            </p>
+                                        <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                            <div>
+                                                <p className="text-xs font-medium text-text-muted uppercase tracking-wider">
+                                                    Active Ingredient
+                                                </p>
+                                                <p className="text-text-secondary mt-0.5">
+                                                    {med.active_ingredient || "Not found"}
+                                                </p>
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-medium text-text-muted uppercase tracking-wider">
+                                                    Dosage
+                                                </p>
+                                                <p className="text-text-secondary mt-0.5">
+                                                    {med.dosage && med.dosage !== "Unknown" ? med.dosage : "Not found"}
+                                                </p>
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-medium text-text-muted uppercase tracking-wider">
+                                                    Form
+                                                </p>
+                                                <p className="text-text-secondary mt-0.5 capitalize">
+                                                    {med.form && med.form !== "Unknown" ? med.form : "Not found"}
+                                                </p>
+                                            </div>
                                         </div>
                                     </div>
 
