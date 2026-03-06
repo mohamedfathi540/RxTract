@@ -537,10 +537,11 @@ class PrescriptionController(basecontroller):
     async def _enrich_medicines(
         self, medicines_raw: List[dict]
     ) -> List[dict]:
-        """Enhance ingredients via OpenFDA, build Google search URLs, extract dosage/form."""
+        """Enhance ingredients via pharmacy API, OpenFDA, local lookup; build URLs."""
 
         async def enrich(med: dict) -> dict:
-            name = med["name"]
+            original_name = med["name"]
+            name = original_name
             active = med["active_ingredient"]
             dosage = med.get("dosage", "Unknown")
             form = med.get("form", "Unknown")
@@ -551,17 +552,22 @@ class PrescriptionController(basecontroller):
             if form == "Unknown":
                 form = MedicineMatcher.extract_form_from_string(name)
 
-            # 1. Fuzzy Match Correction (aggressive)
-            corrected_name = self.medicine_matcher.find_best_match(name)
-            if corrected_name:
-                logger.info(f"Fuzzy corrected '{name}' -> '{corrected_name}'")
-                name = corrected_name
+            # 1. Pharmacy API search (primary source for Egyptian medicines)
+            scraped = await self._scrape_medicine_url(name)
+            product_url = scraped.get("product_url", "")
+            image_url = scraped.get("image_url") or self._build_google_image_url(name)
+            pharmacy_active = scraped.get("active", "")
 
-            # 2. OpenFDA Search
-            openfda_result = await self._search_openfda(name)
-            if openfda_result:
-                active = openfda_result
-                logger.info("OpenFDA enhanced '%s': %s", name, active)
+            if pharmacy_active and active.lower() == "unknown":
+                active = pharmacy_active
+                logger.info("Pharmacy API enhanced '%s': %s", name, active)
+
+            # 2. OpenFDA Search (fallback for international medicines)
+            if active.lower() == "unknown":
+                openfda_result = await self._search_openfda(name)
+                if openfda_result:
+                    active = openfda_result
+                    logger.info("OpenFDA enhanced '%s': %s", name, active)
 
             # 3. Local Ingredient Lookup Fallback
             if active.lower() == "unknown":
@@ -570,14 +576,13 @@ class PrescriptionController(basecontroller):
                     active = local_active
                     logger.info("Local Matcher enhanced '%s': %s", name, active)
 
-            image_url = self._build_google_image_url(name)
-
             return {
-                "name": name,
+                "name": original_name,
                 "active_ingredient": active,
                 "dosage": dosage,
                 "form": form,
                 "image_url": image_url,
+                "product_url": product_url,
             }
 
         tasks = [enrich(m) for m in medicines_raw]
@@ -586,11 +591,83 @@ class PrescriptionController(basecontroller):
 
     @staticmethod
     def _build_google_image_url(medicine_name: str) -> str:
-        """Build a Google Image Search URL for the medicine."""
+        """Build a Google Image Search URL for the medicine (fallback)."""
         query = f"{medicine_name} medicine"
         return (
             f"https://www.google.com/search?q={quote_plus(query)}&tbm=isch"
         )
+
+    async def _scrape_medicine_url(self, medicine_name: str) -> dict:
+        """
+        Search dwaprices.com JSON API for medicine data.
+        Returns active ingredient, product URL, image URL, and price.
+        """
+        pharmacy_base = getattr(
+            self.settings, "PHARMACY_BASE_URL", "https://dwaprices.com"
+        ).rstrip("/")
+        api_url = f"{pharmacy_base}/routing.php"
+        fallback = self._build_google_image_url(medicine_name)
+
+        # Use the first word (brand name) for a targeted search
+        first_word = medicine_name.split()[0] if medicine_name else medicine_name
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=float(getattr(self.settings, "SCRAPING_TIMEOUT", 15)),
+                follow_redirects=True,
+            ) as client:
+                resp = await client.post(
+                    api_url,
+                    data={
+                        "search": "1",
+                        "searchq": first_word,
+                        "order_by": "name ASC",
+                    },
+                    headers={
+                        "User-Agent": getattr(
+                            self.settings,
+                            "SCRAPING_USER_AGENT",
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                        ),
+                    },
+                )
+                if resp.status_code != 200:
+                    logger.debug(
+                        "Pharmacy API returned %d for '%s'",
+                        resp.status_code, first_word,
+                    )
+                    return {"product_url": "", "image_url": fallback, "active": ""}
+
+                data = resp.json()
+                results = data.get("data", [])
+                if not results:
+                    return {"product_url": "", "image_url": fallback, "active": ""}
+
+                # Pick the first result (API already filters by search term)
+                hit = results[0]
+                product_id = hit.get("id", "")
+                product_url = f"{pharmacy_base}/med.php?id={product_id}" if product_id else ""
+                img = hit.get("img", "")
+                image_url = f"{pharmacy_base}/{img}" if img else ""
+                active = hit.get("active", "")
+                price = hit.get("price", "")
+
+                if product_url:
+                    logger.info(
+                        "Pharmacy API found '%s': product=%s, active=%s, price=%s",
+                        medicine_name, product_url, active, price,
+                    )
+
+                return {
+                    "product_url": product_url,
+                    "image_url": image_url or fallback,
+                    "active": active,
+                    "price": price,
+                }
+
+        except Exception as e:
+            logger.debug("Pharmacy API failed for '%s': %s", medicine_name, e)
+            return {"product_url": "", "image_url": fallback, "active": ""}
 
     async def _search_openfda(self, medicine_name: str) -> str:
         """Try OpenFDA to get official active ingredient name."""

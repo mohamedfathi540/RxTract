@@ -394,17 +394,30 @@ export function PrescriptionPage() {
                                     </div>
 
                                     {/* Google Image Search Link */}
-                                    {med.image_url && (
-                                        <a
-                                            href={med.image_url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="shrink-0 self-start flex items-center gap-2 px-4 py-2.5 bg-primary-600/20 hover:bg-primary-600/30 text-primary-400 rounded-lg border border-primary-600/30 transition-all duration-200 hover:scale-105 text-sm font-medium"
-                                            onClick={(e) => e.stopPropagation()}
-                                        >
-                                            🔍 View Images
-                                        </a>
-                                    )}
+                                    <div className="shrink-0 self-start flex flex-col gap-2">
+                                        {med.product_url && (
+                                            <a
+                                                href={med.product_url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="flex items-center gap-2 px-4 py-2.5 bg-green-600/20 hover:bg-green-600/30 text-green-400 rounded-lg border border-green-600/30 transition-all duration-200 hover:scale-105 text-sm font-medium"
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                🛒 View Product
+                                            </a>
+                                        )}
+                                        {med.image_url && (
+                                            <a
+                                                href={med.image_url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="flex items-center gap-2 px-4 py-2.5 bg-primary-600/20 hover:bg-primary-600/30 text-primary-400 rounded-lg border border-primary-600/30 transition-all duration-200 hover:scale-105 text-sm font-medium"
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                🔍 View Images
+                                            </a>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         ))}

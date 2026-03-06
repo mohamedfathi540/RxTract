@@ -24,6 +24,10 @@ RUN uv sync --no-dev --no-install-project
 
 COPY SRC/ .
 
+# Stage seed data files so they can be copied into the volume at runtime
+RUN mkdir -p /seed/Assets/Files/1 && \
+    cp -r Assets/Files/. /seed/Assets/Files/ 2>/dev/null || true
+
 #create directory for alembic
 RUN mkdir -p Models/DB_Schemes/minirag
  

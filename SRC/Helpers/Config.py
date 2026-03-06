@@ -70,6 +70,9 @@ class settings (BaseSettings):
     SCRAPING_CONCURRENCY : int = 1
     SCRAPING_IGNORE_ROBOTS : int = 1
 
+    # Pharmacy product search (for medicine URL scraping)
+    PHARMACY_BASE_URL : str = "https://dwaprices.com/"
+
 
     DEFUALT_LANGUAGE : str = "en"
     PRIMARY_LANGUAGE : str = "en"

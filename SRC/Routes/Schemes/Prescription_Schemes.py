@@ -8,6 +8,7 @@ class MedicineInfo(BaseModel):
     dosage: Optional[str] = None
     form: Optional[str] = None
     image_url: Optional[str] = None
+    product_url: Optional[str] = None
 
 
 class PrescriptionResponse(BaseModel):

@@ -95,6 +95,7 @@ export interface MedicineInfo {
     dosage: string | null;
     form: string | null;
     image_url: string | null;
+    product_url: string | null;
 }
 
 export interface PrescriptionResponse {
