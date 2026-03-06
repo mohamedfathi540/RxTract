@@ -13,6 +13,7 @@ from Models.DB_Schemes import dataChunk ,Asset
 from Models.Chunk_Model import ChunkModel
 from Models.Asset_Model import AssetModel
 from Models.enums.AssetTypeEnum import assettypeEnum
+from Utils.rate_limit import limiter, config_limit, require_quota
 
 
 logger = logging.getLogger("uvicorn.error")
@@ -24,7 +25,9 @@ data_router = APIRouter(
 )
 
 @data_router.post("/upload/{project_id}")
+@limiter.limit(config_limit("RATE_LIMIT_UPLOAD"))
 async def upload_data (request :Request,project_id : int ,file : UploadFile ,
+                       user=Depends(require_quota("upload")),
                        app_settings : settings = Depends(get_settings))  :
 
 
@@ -82,6 +85,7 @@ async def upload_data (request :Request,project_id : int ,file : UploadFile ,
 
 
 @data_router.delete("/asset/{project_id}/{file_id}")
+@limiter.limit(config_limit("RATE_LIMIT_UPLOAD"))
 async def delete_asset(request: Request, project_id: int, file_id: str):
     """Remove an asset (and its chunks/vectors) from the project. file_id can be asset_id (integer) or asset_name (e.g. filename)."""
     project_model = await projectModel.create_instance(db_client=request.app.db_client)
@@ -124,6 +128,7 @@ async def delete_asset(request: Request, project_id: int, file_id: str):
 
 
 @data_router.delete("/project/{project_id}/assets")
+@limiter.limit(config_limit("RATE_LIMIT_UPLOAD"))
 async def delete_all_assets(request: Request, project_id: int):
     """Remove all file assets (and their chunks/vectors) from the project."""
     project_model = await projectModel.create_instance(db_client=request.app.db_client)
@@ -185,6 +190,7 @@ async def delete_all_assets(request: Request, project_id: int):
 
 
 @data_router.post("/process/{project_id}")
+@limiter.limit(config_limit("RATE_LIMIT_UPLOAD"))
 async def process_endpoint (request :Request ,project_id :int ,process_request : ProcessRequest) :
 
     settings = get_settings()

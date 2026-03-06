@@ -245,8 +245,8 @@ class PrescriptionController(basecontroller):
             prompt=vision_extraction_prompt.substitute(
                 common_medicines_list=COMMON_MEDICINES_LIST.replace("$", "$$")
             ),
-            max_output_tokens=8192,
-            temperature=0.2,
+            max_output_tokens=int(getattr(self.settings, "OCR_MAX_OUTPUT_TOKENS", 8192)),
+            temperature=float(getattr(self.settings, "OCR_TEMPERATURE", 0.2)),
         )
 
         if not raw_response:

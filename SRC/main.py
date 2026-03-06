@@ -1,7 +1,6 @@
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
@@ -18,9 +17,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from Utils.metrics import setup_metrics
 from Utils.security import get_current_user
-
-# ── Rate Limiter (key = client IP) ──────────────────────────────────
-limiter = Limiter(key_func=get_remote_address)
+from Utils.rate_limit import limiter
 
 # ── Create FastAPI instance ─────────────────────────────────────────
 app = FastAPI()
@@ -113,3 +110,11 @@ app.include_router(Prescription.prescription_router, dependencies=[Depends(get_c
 @limiter.limit("5/minute")
 async def health_check(request: Request):
     return {"status": "ok"}
+
+
+# ── Quota status endpoint (authenticated users) ────────────────────
+from Utils.rate_limit import get_user_quota_status
+
+@app.get("/api/v1/quota/status", dependencies=[Depends(get_current_user)])
+async def quota_status(request: Request, user=Depends(get_current_user)):
+    return await get_user_quota_status(request, user)

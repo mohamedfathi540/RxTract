@@ -10,6 +10,8 @@ from sqlalchemy import select
 from .Schemes.Auth_Schemes import UserCreate, UserLogin
 from Utils.security import get_password_hash, verify_password, create_access_token
 from Utils.email_service import send_verification_email
+from Utils.rate_limit import limiter, config_limit
+from slowapi.util import get_remote_address
 from Models.DB_Schemes import User
 
 logger = logging.getLogger("uvicorn.error")
@@ -22,6 +24,7 @@ auth_router = APIRouter(
 
 # ── Register ────────────────────────────────────────────────────────
 @auth_router.post("/register")
+@limiter.limit(config_limit("RATE_LIMIT_AUTH"), key_func=get_remote_address)
 async def register(request: Request, user_in: UserCreate):
     """Create a new user account and send a verification email."""
     async with request.app.db_client() as session:
@@ -62,6 +65,7 @@ async def register(request: Request, user_in: UserCreate):
 
 # ── Login ───────────────────────────────────────────────────────────
 @auth_router.post("/login")
+@limiter.limit(config_limit("RATE_LIMIT_AUTH"), key_func=get_remote_address)
 async def login(request: Request, user_in: UserLogin):
     """Authenticate a user and return a JWT access token."""
     async with request.app.db_client() as session:
@@ -88,6 +92,7 @@ async def login(request: Request, user_in: UserLogin):
 
 # ── Email verification ──────────────────────────────────────────────
 @auth_router.get("/verify")
+@limiter.limit(config_limit("RATE_LIMIT_AUTH"), key_func=get_remote_address)
 async def verify_email(request: Request, token: str):
     """Verify a user's email address using the token sent via email."""
     async with request.app.db_client() as session:
@@ -111,6 +116,7 @@ async def verify_email(request: Request, token: str):
 
 # ── Resend verification email ───────────────────────────────────────
 @auth_router.post("/resend-verification")
+@limiter.limit("3/minute", key_func=get_remote_address)
 async def resend_verification(request: Request, body: dict):
     """Resend the verification email for an unverified account."""
     email = body.get("email", "").strip().lower()

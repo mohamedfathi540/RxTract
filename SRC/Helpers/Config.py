@@ -58,6 +58,10 @@ class settings (BaseSettings):
     PRESCRIPTION_CHUNK_SIZE : int = 300
     PRESCRIPTION_OVERLAP_SIZE : int = 50
 
+    # Vision OCR generation parameters
+    OCR_MAX_OUTPUT_TOKENS : int = 8192
+    OCR_TEMPERATURE : float = 0.2
+
     # Web Scraping Configuration
     SCRAPING_MAX_PAGES : int = 1000
     SCRAPING_RATE_LIMIT : float = 0.1
@@ -96,6 +100,17 @@ class settings (BaseSettings):
     JWT_SECRET : str = "change-me-in-production"
     JWT_ALGORITHM : str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES : int = 60
+
+    # ── Rate Limits (per user unless noted) ──
+    RATE_LIMIT_AUTH : str = "10/minute"          # per IP
+    RATE_LIMIT_UPLOAD : str = "20/minute"
+    RATE_LIMIT_QUERY : str = "30/minute"
+    RATE_LIMIT_PRESCRIPTION : str = "10/minute"
+
+    # ── Daily Usage Quotas (0 = unlimited) ──
+    QUOTA_DAILY_UPLOADS : int = 50
+    QUOTA_DAILY_QUERIES : int = 200
+    QUOTA_DAILY_PRESCRIPTIONS : int = 30
 
     # ── Email Verification (Brevo) ──
     BREVO_API_KEY : Optional[str] = None

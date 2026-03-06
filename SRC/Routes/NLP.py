@@ -1,4 +1,4 @@
-from fastapi import FastAPI,APIRouter,status,Request
+from fastapi import FastAPI,APIRouter,Depends,status,Request
 from fastapi.responses import JSONResponse
 import logging
 from .Schemes.NLP_Schemes import PushRequest , SearchRequest 
@@ -9,6 +9,7 @@ from Models.enums.ResponsEnums import ResponseSignal
 from Helpers.Config import get_settings
 from tqdm.auto import tqdm
 from Utils.PromptGuard import PromptGuard
+from Utils.rate_limit import limiter, config_limit, require_quota
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -18,6 +19,7 @@ nlp_router = APIRouter(
 )
 
 @nlp_router.post("/index/push/{project_id}")
+@limiter.limit(config_limit("RATE_LIMIT_UPLOAD"))
 async def index_project (request :Request ,project_id :int ,push_request : PushRequest) :
 
 
@@ -103,6 +105,7 @@ async def index_project (request :Request ,project_id :int ,push_request : PushR
                  "InsertedItemsCount" : inserted_items_count})
 
 @nlp_router.get("/index/info/{project_id}")
+@limiter.limit(config_limit("RATE_LIMIT_QUERY"))
 async def get_project_index_info (request :Request ,project_id :int) :
 
     project_model = await projectModel.create_instance(db_client=request.app.db_client)
@@ -127,7 +130,9 @@ async def get_project_index_info (request :Request ,project_id :int) :
 
 
 @nlp_router.post("/index/search/{project_id}")
-async def search_index(request :Request ,project_id :int , search_request : SearchRequest) :
+@limiter.limit(config_limit("RATE_LIMIT_QUERY"))
+async def search_index(request :Request ,project_id :int , search_request : SearchRequest,
+                      user=Depends(require_quota("query"))) :
     
     
     project_model = await projectModel.create_instance(db_client=request.app.db_client)
@@ -161,7 +166,9 @@ async def search_index(request :Request ,project_id :int , search_request : Sear
 
 
 @nlp_router.post("/index/answer/{project_id}")
-async def answer_index(request :Request ,project_id :int , search_request : SearchRequest) :
+@limiter.limit(config_limit("RATE_LIMIT_QUERY"))
+async def answer_index(request :Request ,project_id :int , search_request : SearchRequest,
+                      user=Depends(require_quota("query"))) :
     
     # ── Prompt Guard: validate input ──
     is_safe, reason = PromptGuard.validate_input(search_request.text)
