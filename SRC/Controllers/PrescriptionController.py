@@ -245,7 +245,7 @@ class PrescriptionController(basecontroller):
             prompt=vision_extraction_prompt.substitute(
                 common_medicines_list=COMMON_MEDICINES_LIST.replace("$", "$$")
             ),
-            max_output_tokens=2048,
+            max_output_tokens=4096,
             temperature=0.2,
         )
 
@@ -307,6 +307,17 @@ class PrescriptionController(basecontroller):
         except json.JSONDecodeError as e:
             logger.error("Failed to parse vision OCR response: %s", e)
             logger.error("Raw text: %s", text[:500])
+            # Attempt to salvage truncated JSON by extracting ocr_text
+            match = re.search(r'"ocr_text"\s*:\s*"((?:[^"\\]|\\.)*)', text)
+            if match:
+                ocr_text = match.group(1)
+                # Unescape JSON escapes like \n
+                try:
+                    ocr_text = json.loads('"' + ocr_text + '"')
+                except json.JSONDecodeError:
+                    pass
+                logger.info("Salvaged ocr_text from truncated response (len=%d)", len(ocr_text))
+                return [], ocr_text
             return [], ""
 
     @staticmethod
