@@ -245,7 +245,7 @@ class PrescriptionController(basecontroller):
             prompt=vision_extraction_prompt.substitute(
                 common_medicines_list=COMMON_MEDICINES_LIST.replace("$", "$$")
             ),
-            max_output_tokens=4096,
+            max_output_tokens=8192,
             temperature=0.2,
         )
 
@@ -320,7 +320,7 @@ class PrescriptionController(basecontroller):
                 except json.JSONDecodeError:
                     pass
 
-            # Attempt to salvage complete medicine entries from truncated JSON
+            # Attempt to salvage medicine entries (complete or truncated)
             medicines = []
             for m in re.finditer(
                 r'\{\s*"name"\s*:\s*"(?P<name>[^"]+)"'
@@ -328,7 +328,7 @@ class PrescriptionController(basecontroller):
                 r'(?:.*?"dosage"\s*:\s*"(?P<dosage>[^"]+)")?'
                 r'(?:.*?"form"\s*:\s*"(?P<form>[^"]+)")?'
                 r'(?:.*?"confidence_score"\s*:\s*[\d.]+)?'
-                r'\s*\}',
+                r'(?:\s*\})?',
                 text,
                 re.DOTALL,
             ):

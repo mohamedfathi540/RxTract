@@ -49,17 +49,17 @@ Extract EVERY medication from the prescription with its dosage strength and phar
 ### MEDICINE REFERENCE (Examples):
 $common_medicines_list
 
-### OUTPUT FORMAT (JSON ONLY):
+### OUTPUT FORMAT (JSON ONLY — medicines FIRST, then ocr_text):
 {
-  "ocr_text": "Brief summary of text/clinical notes found in image",
   "medicines": [
     {
       "name": "Brand name (e.g., Augmentin)",
       "active_ingredient": "Generic (or 'Unknown')",
       "dosage": "Strength (e.g., '625mg', '100mg', '1g') or 'Unknown'",
-      "form": "Form (e.g., 'tablet', 'syrup', 'capsule', 'suppository') or 'Unknown'",
+      "form": "Form (e.g., 'tablet', 'syrup', 'capsule', 'suppository') or 'Unknown'"
     }
-  ]
+  ],
+  "ocr_text": "ONE short sentence (max 30 words) summarizing ONLY the medicine-related text. Do NOT include clinic names, phone numbers, addresses, or non-medical text."
 }
 """.strip())
 
