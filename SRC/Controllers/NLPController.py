@@ -9,7 +9,7 @@ from typing import List
 from Stores.LLM.LLMEnums import DocumentTypeEnum
 from Helpers.Config import get_settings
 import json
-from Utils.language_detect import detect_query_language
+from Controllers.UtilsController import UtilsController
 
 
 
@@ -140,7 +140,7 @@ class NLPController (basecontroller) :
 
         #step 2 : constract LLM prompt (include source metadata when available)
         system_prompt = self.template_parser.get("rag", "system_prompt", {
-        "response_language": detect_query_language(query)
+        "response_language": UtilsController.detect_query_language(query)
     })
         doc_lines = []
         for idx, doc in enumerate(retrieved_documents):
@@ -201,7 +201,7 @@ class NLPController (basecontroller) :
         
         # Step 2: construct LLM prompt using prescription-specific template
         system_prompt = self.template_parser.get("prescription_rag", "system_prompt", {
-        "response_language": detect_query_language(query)
+        "response_language": UtilsController.detect_query_language(query)
     })
         doc_lines = []
         

@@ -17,7 +17,7 @@ from Models.Asset_Model import AssetModel
 from Models.DB_Schemes import dataChunk, Asset, Project
 from Models.enums.AssetTypeEnum import assettypeEnum
 from Stores.LLM.LLMEnums import DocumentTypeEnum
-from Utils.PromptGuard import PromptGuard
+from Controllers.UtilsController import UtilsController
 from Utils.rate_limit import limiter, config_limit, require_quota
 
 logger = logging.getLogger("uvicorn.error")
@@ -402,7 +402,7 @@ async def prescription_chat(request: Request, chat_request: PrescriptionChatRequ
     Uses the RAG system scoped to the project_id created from analyze.
     """
     # ── Prompt Guard: validate input ──
-    is_safe, reason = PromptGuard.validate_input(chat_request.text)
+    is_safe, reason = UtilsController.validate_input(chat_request.text)
     if not is_safe:
         logger.warning("Prompt injection blocked: %s", reason)
         return JSONResponse(
@@ -450,7 +450,7 @@ async def prescription_chat(request: Request, chat_request: PrescriptionChatRequ
         )
 
     # ── Prompt Guard: validate output ──
-    output_safe, output_reason = PromptGuard.validate_output(answer)
+    output_safe, output_reason = UtilsController.validate_output(answer)
     if not output_safe:
         logger.warning("Output leak blocked: %s", output_reason)
         answer = "I can only help with questions about your prescription and medicines."
