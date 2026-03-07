@@ -137,7 +137,6 @@ export interface QuotaUsage {
 
 export interface QuotaStatusResponse {
     date: string;
-    uploads: QuotaUsage;
     queries: QuotaUsage;
     prescriptions: QuotaUsage;
 }

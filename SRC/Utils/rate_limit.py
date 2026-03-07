@@ -52,10 +52,9 @@ def require_quota(action: str):
     """
     Factory returning a FastAPI dependency that enforces daily usage quotas.
 
-    ``action`` must be one of: ``"upload"``, ``"query"``, ``"prescription"``
+    ``action`` must be one of: ``"query"``, ``"prescription"``
     """
     _limit_map = {
-        "upload": "QUOTA_DAILY_UPLOADS",
         "query": "QUOTA_DAILY_QUERIES",
         "prescription": "QUOTA_DAILY_PRESCRIPTIONS",
     }
@@ -120,13 +119,11 @@ async def get_user_quota_status(request: Request, user) -> dict:
         )
         quota = result.scalar_one_or_none()
 
-    used_uploads = quota.upload_count if quota else 0
     used_queries = quota.query_count if quota else 0
     used_prescriptions = quota.prescription_count if quota else 0
 
     return {
         "date": str(today),
-        "uploads": {"used": used_uploads, "limit": s.QUOTA_DAILY_UPLOADS},
         "queries": {"used": used_queries, "limit": s.QUOTA_DAILY_QUERIES},
         "prescriptions": {"used": used_prescriptions, "limit": s.QUOTA_DAILY_PRESCRIPTIONS},
     }

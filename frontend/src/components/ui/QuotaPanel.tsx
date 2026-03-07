@@ -62,7 +62,6 @@ export function QuotaPanel() {
       <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted">
         Daily Usage
       </p>
-      <Bar label="Uploads" usage={quota.uploads} />
       <Bar label="Queries" usage={quota.queries} />
       <Bar label="Prescriptions" usage={quota.prescriptions} />
     </div>

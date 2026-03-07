@@ -108,7 +108,6 @@ class settings (BaseSettings):
     RATE_LIMIT_PRESCRIPTION : str = "10/minute"
 
     # ── Daily Usage Quotas (0 = unlimited) ──
-    QUOTA_DAILY_UPLOADS : int = 50
     QUOTA_DAILY_QUERIES : int = 200
     QUOTA_DAILY_PRESCRIPTIONS : int = 30
 
