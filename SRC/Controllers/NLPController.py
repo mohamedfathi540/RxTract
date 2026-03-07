@@ -207,6 +207,7 @@ class NLPController (basecontroller) :
         
         # Track ingredients to find alternatives
         ingredients_found = set()
+        unknown_ingredient_medicines = set()
         
         for idx, doc in enumerate(retrieved_documents):
             chunk_text = self.genration_client.process_text(doc.text)
@@ -222,6 +223,10 @@ class NLPController (basecontroller) :
                     parts.append(f"Active Ingredient: {active_ing}")
                     if active_ing.lower() != "unknown":
                         ingredients_found.add((med_name, active_ing))
+                    else:
+                        unknown_ingredient_medicines.add(med_name)
+                elif med_name:
+                    unknown_ingredient_medicines.add(med_name)
                 
                 if parts:
                     chunk_text = " | ".join(parts) + "\n" + chunk_text
@@ -246,6 +251,15 @@ class NLPController (basecontroller) :
             if len(alt_lines) > 1:
                 # Add to the document prompt context
                 doc_lines.append("\n".join(alt_lines))
+
+        # Step 2.6: For medicines with unknown active ingredients, instruct LLM to use its own knowledge
+        if unknown_ingredient_medicines:
+            unknown_lines = ["\n### MEDICINES WITH UNKNOWN ACTIVE INGREDIENTS:"]
+            unknown_lines.append("The following medicines could not be matched to active ingredients in our database.")
+            unknown_lines.append("Use your pharmaceutical knowledge to identify their likely active ingredients and suggest alternatives.")
+            for med_name in unknown_ingredient_medicines:
+                unknown_lines.append(f"- **{med_name}** — active ingredient not found in database")
+            doc_lines.append("\n".join(unknown_lines))
 
         document_prompt = "\n".join(doc_lines)
 
