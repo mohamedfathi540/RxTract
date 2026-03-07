@@ -91,7 +91,7 @@ def require_quota(action: str):
                     status_code=429,
                     detail=(
                         f"Daily {action} quota exceeded ({current}/{limit}). "
-                        "Resets at midnight UTC."
+                        "Resets daily at midnight (server time, UTC)."
                     ),
                 )
 

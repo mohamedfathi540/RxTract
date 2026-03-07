@@ -145,7 +145,7 @@ export function SearchPage() {
         </div>
       )}
 
-      {searchMutation.isError && (
+      {searchMutation.isError && !(searchMutation.error && 'isRateLimit' in searchMutation.error && (searchMutation.error as any).isRateLimit) && (
         <Card className="border-error/50">
           <p className="text-error">
             Error:{" "}

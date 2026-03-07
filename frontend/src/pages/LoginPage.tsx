@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { authApi } from "../api/auth";
 import { useAuthStore } from "../stores/authStore";
+import { Logo } from "../components/ui/Logo";
 
 export function LoginPage() {
     const navigate = useNavigate();
@@ -65,7 +66,7 @@ export function LoginPage() {
             <div className="w-full max-w-md animate-slide-up">
                 {/* Header */}
                 <div className="text-center mb-8">
-                    <img src="/logo-icon.png" alt="RxTract" className="w-16 h-16 mx-auto mb-4 rounded-xl" />
+                    <Logo size={64} className="mx-auto mb-4 rounded-xl" />
                     <h1 className="text-3xl font-bold text-white tracking-tight">
                         RxTract
                     </h1>

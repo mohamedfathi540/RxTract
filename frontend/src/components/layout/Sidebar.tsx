@@ -8,6 +8,7 @@ import {
   ArrowRightStartOnRectangleIcon,
 } from "@heroicons/react/24/outline";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { Logo } from "../ui/Logo";
 import { useAuthStore } from "../../stores/authStore";
 import { StatusBadge } from "../ui/StatusBadge";
 import { Button } from "../ui/Button";
@@ -97,7 +98,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
       >
         <div className="p-5 border-b border-border">
           <div className="flex items-center gap-2.5">
-            <img src="/logo-icon.png" alt="RxTract" className="w-9 h-9 rounded-lg" />
+            <Logo size={36} className="rounded-lg" />
             <div>
               <h1 className="text-xl font-semibold tracking-tight text-white">
                 RxTract

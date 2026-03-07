@@ -1,6 +1,7 @@
 import { useSettingsStore } from "../stores/settingsStore";
 import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
+import { Logo } from "../components/ui/Logo";
 
 export function SettingsPage() {
   const {
@@ -146,7 +147,7 @@ export function SettingsPage() {
       {/* About */}
       <Card title="About">
         <div className="text-center py-4">
-          <img src="/logo.png" alt="RxTract" className="h-16 mx-auto mb-4" />
+          <Logo size={64} className="mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-text-primary mb-2">RxTract</h1>
           <p className="text-text-secondary">RAG System</p>
           <p className="text-sm text-text-muted mt-4">

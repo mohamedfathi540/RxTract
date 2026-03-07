@@ -39,6 +39,17 @@ export const analyzePrescriptionStream = (
         .then(async (response) => {
             if (!response.ok) {
                 const text = await response.text();
+                if (response.status === 429) {
+                    // Show quota warning via toast, not a page-level error
+                    const { useToastStore } = await import('../stores/toastStore');
+                    const { useQuotaStore } = await import('../stores/quotaStore');
+                    let msg = 'Rate limit exceeded. Please try again shortly.';
+                    try { msg = JSON.parse(text).detail || msg; } catch {}
+                    useToastStore.getState().addToast(msg, 'warning');
+                    useQuotaStore.getState().fetchQuota();
+                    onError(`__RATE_LIMIT__${msg}`);
+                    return;
+                }
                 onError(`Server error: ${response.status} - ${text}`);
                 return;
             }

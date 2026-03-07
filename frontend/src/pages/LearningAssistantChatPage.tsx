@@ -39,6 +39,8 @@ export function LearningAssistantChatPage() {
       addMessage(assistantMessage);
     },
     onError: (error) => {
+      // Rate-limit errors are already shown as a warning toast — skip chat error
+      if (error && 'isRateLimit' in error && (error as any).isRateLimit) return;
       const errorMessage: ChatMessage = {
         id: generateId(),
         role: "assistant",

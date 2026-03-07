@@ -321,11 +321,23 @@ export function PrescriptionPage() {
                 </div>
             )}
 
-            {/* Error */}
+            {/* Error / Warning */}
             {error && (
-                <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
-                    <p className="text-red-400 font-medium">⚠️ Error</p>
-                    <p className="text-red-300 text-sm mt-1">{error}</p>
+                <div className={`rounded-xl p-4 ${
+                    error.startsWith('__RATE_LIMIT__')
+                        ? 'bg-yellow-500/10 border border-yellow-500/30'
+                        : 'bg-red-500/10 border border-red-500/30'
+                }`}>
+                    <p className={`font-medium ${
+                        error.startsWith('__RATE_LIMIT__') ? 'text-yellow-400' : 'text-red-400'
+                    }`}>
+                        {error.startsWith('__RATE_LIMIT__') ? '⚠️ Quota Limit' : '⚠️ Error'}
+                    </p>
+                    <p className={`text-sm mt-1 ${
+                        error.startsWith('__RATE_LIMIT__') ? 'text-yellow-300' : 'text-red-300'
+                    }`}>
+                        {error.startsWith('__RATE_LIMIT__') ? error.slice(14) : error}
+                    </p>
                 </div>
             )}
 
