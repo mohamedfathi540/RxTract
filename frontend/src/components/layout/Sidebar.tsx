@@ -96,12 +96,17 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
         `}
       >
         <div className="p-5 border-b border-border">
-          <h1 className="text-xl font-semibold tracking-tight text-white">
-            RxTract
-          </h1>
-          <p className="text-xs text-text-muted mt-0.5">
-            Prescription Analyzer
-          </p>
+          <div className="flex items-center gap-2.5">
+            <img src="/logo-icon.png" alt="RxTract" className="w-9 h-9 rounded-lg" />
+            <div>
+              <h1 className="text-xl font-semibold tracking-tight text-white">
+                RxTract
+              </h1>
+              <p className="text-xs text-text-muted mt-0.5">
+                Prescription Analyzer
+              </p>
+            </div>
+          </div>
         </div>
 
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
