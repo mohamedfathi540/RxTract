@@ -9,7 +9,7 @@ from Models.enums.ResponsEnums import ResponseSignal
 from Helpers.Config import get_settings
 from tqdm.auto import tqdm
 from Controllers.UtilsController import UtilsController
-from Utils.rate_limit import limiter, config_limit, require_quota
+from Controllers.SecurityController import limiter, config_limit, SecurityController
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -132,7 +132,7 @@ async def get_project_index_info (request :Request ,project_id :int) :
 @nlp_router.post("/index/search/{project_id}")
 @limiter.limit(config_limit("RATE_LIMIT_QUERY"))
 async def search_index(request :Request ,project_id :int , search_request : SearchRequest,
-                      user=Depends(require_quota("query"))) :
+                      user=Depends(SecurityController.require_quota("query"))) :
     
     
     project_model = await projectModel.create_instance(db_client=request.app.db_client)
@@ -168,7 +168,7 @@ async def search_index(request :Request ,project_id :int , search_request : Sear
 @nlp_router.post("/index/answer/{project_id}")
 @limiter.limit(config_limit("RATE_LIMIT_QUERY"))
 async def answer_index(request :Request ,project_id :int , search_request : SearchRequest,
-                      user=Depends(require_quota("query"))) :
+                      user=Depends(SecurityController.require_quota("query"))) :
     
     # ── Prompt Guard: validate input ──
     is_safe, reason = UtilsController.validate_input(search_request.text)

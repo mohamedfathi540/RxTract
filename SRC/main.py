@@ -16,8 +16,7 @@ from Stores.LLM.Templates.template_parser import template_parser as TemplatePars
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from Utils.metrics import setup_metrics
-from Utils.security import get_current_user
-from Utils.rate_limit import limiter
+from Controllers.SecurityController import SecurityController, limiter
 
 # ── Create FastAPI instance ─────────────────────────────────────────
 app = FastAPI()
@@ -100,9 +99,9 @@ app.include_router(Base.base_router)
 app.include_router(Auth.auth_router)
 
 # Protected routes (JWT required)
-app.include_router(Data.data_router, dependencies=[Depends(get_current_user)])
-app.include_router(NLP.nlp_router, dependencies=[Depends(get_current_user)])
-app.include_router(Prescription.prescription_router, dependencies=[Depends(get_current_user)])
+app.include_router(Data.data_router, dependencies=[Depends(SecurityController.get_current_user)])
+app.include_router(NLP.nlp_router, dependencies=[Depends(SecurityController.get_current_user)])
+app.include_router(Prescription.prescription_router, dependencies=[Depends(SecurityController.get_current_user)])
 
 
 # ── Rate-limited health endpoint ────────────────────────────────────
@@ -113,8 +112,7 @@ async def health_check(request: Request):
 
 
 # ── Quota status endpoint (authenticated users) ────────────────────
-from Utils.rate_limit import get_user_quota_status
 
-@app.get("/api/v1/quota/status", dependencies=[Depends(get_current_user)])
-async def quota_status(request: Request, user=Depends(get_current_user)):
-    return await get_user_quota_status(request, user)
+@app.get("/api/v1/quota/status", dependencies=[Depends(SecurityController.get_current_user)])
+async def quota_status(request: Request, user=Depends(SecurityController.get_current_user)):
+    return await SecurityController.get_user_quota_status(request, user)

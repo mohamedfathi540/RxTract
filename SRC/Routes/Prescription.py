@@ -18,7 +18,7 @@ from Models.DB_Schemes import dataChunk, Asset, Project
 from Models.enums.AssetTypeEnum import assettypeEnum
 from Stores.LLM.LLMEnums import DocumentTypeEnum
 from Controllers.UtilsController import UtilsController
-from Utils.rate_limit import limiter, config_limit, require_quota
+from Controllers.SecurityController import limiter, config_limit, SecurityController
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -46,7 +46,7 @@ class PrescriptionChatRequest(BaseModel):
 @prescription_router.post("/analyze")
 @limiter.limit(config_limit("RATE_LIMIT_PRESCRIPTION"))
 async def analyze_prescription(request: Request, file: UploadFile,
-                               user=Depends(require_quota("prescription"))):
+                               user=Depends(SecurityController.require_quota("prescription"))):
     """
     Upload a prescription image, perform OCR, extract medicine names,
     and push the results into a NEW project in the RAG system.
@@ -204,7 +204,7 @@ async def analyze_prescription(request: Request, file: UploadFile,
 @prescription_router.post("/analyze-stream")
 @limiter.limit(config_limit("RATE_LIMIT_PRESCRIPTION"))
 async def analyze_prescription_stream(request: Request, file: UploadFile,
-                                      user=Depends(require_quota("prescription"))):
+                                      user=Depends(SecurityController.require_quota("prescription"))):
     """
     Upload a prescription image and stream real-time progress via SSE.
     Each pipeline step sends a progress event, and the final result
@@ -396,7 +396,7 @@ async def analyze_prescription_stream(request: Request, file: UploadFile,
 @prescription_router.post("/chat")
 @limiter.limit(config_limit("RATE_LIMIT_QUERY"))
 async def prescription_chat(request: Request, chat_request: PrescriptionChatRequest,
-                            user=Depends(require_quota("query"))):
+                            user=Depends(SecurityController.require_quota("query"))):
     """
     Chat about a specific prescription analysis.
     Uses the RAG system scoped to the project_id created from analyze.

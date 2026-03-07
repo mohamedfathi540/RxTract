@@ -13,8 +13,7 @@ from Models.DB_Schemes import dataChunk ,Asset
 from Models.Chunk_Model import ChunkModel
 from Models.Asset_Model import AssetModel
 from Models.enums.AssetTypeEnum import assettypeEnum
-from Utils.rate_limit import limiter, config_limit
-from Utils.security import get_current_user
+from Controllers.SecurityController import SecurityController, limiter, config_limit
 
 
 logger = logging.getLogger("uvicorn.error")
@@ -28,7 +27,7 @@ data_router = APIRouter(
 @data_router.post("/upload/{project_id}")
 @limiter.limit(config_limit("RATE_LIMIT_UPLOAD"))
 async def upload_data (request :Request,project_id : int ,file : UploadFile ,
-                       user=Depends(get_current_user),
+                       user=Depends(SecurityController.get_current_user),
                        app_settings : settings = Depends(get_settings))  :
 
 

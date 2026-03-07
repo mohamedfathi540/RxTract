@@ -8,9 +8,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
 from .Schemes.Auth_Schemes import UserCreate, UserLogin
-from Utils.security import get_password_hash, verify_password, create_access_token
-from Utils.email_service import send_verification_email
-from Utils.rate_limit import limiter, config_limit
+from Controllers.SecurityController import SecurityController, limiter, config_limit
 from slowapi.util import get_remote_address
 from Models.DB_Schemes import User
 
@@ -39,7 +37,7 @@ async def register(request: Request, user_in: UserCreate):
             )
 
         # 2. Hash password & create verification token
-        hashed_pw = get_password_hash(user_in.password)
+        hashed_pw = SecurityController.get_password_hash(user_in.password)
         verification_token = str(uuid.uuid4())
 
         # 3. Persist user
@@ -53,7 +51,7 @@ async def register(request: Request, user_in: UserCreate):
 
     # 4. Send verification email (outside the DB session)
     try:
-        await send_verification_email(user_in.email, verification_token)
+        await SecurityController.send_verification_email(user_in.email, verification_token)
     except Exception as exc:
         logger.error("Failed to send verification email: %s", exc)
 
@@ -74,7 +72,7 @@ async def login(request: Request, user_in: UserLogin):
         )
         db_user = result.scalar_one_or_none()
 
-    if db_user is None or not verify_password(user_in.password, db_user.hashed_password):
+    if db_user is None or not SecurityController.verify_password(user_in.password, db_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password.",
@@ -86,7 +84,7 @@ async def login(request: Request, user_in: UserLogin):
             detail="Email not verified. Please check your inbox.",
         )
 
-    access_token = create_access_token(data={"sub": db_user.email})
+    access_token = SecurityController.create_access_token(data={"sub": db_user.email})
     return {"access_token": access_token, "token_type": "bearer"}
 
 
@@ -143,7 +141,7 @@ async def resend_verification(request: Request, body: dict):
 
     # Send the email
     try:
-        await send_verification_email(email, new_token)
+        await SecurityController.send_verification_email(email, new_token)
     except Exception as exc:
         logger.error("Failed to resend verification email: %s", exc)
 
