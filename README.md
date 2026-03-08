@@ -1,33 +1,37 @@
-<![CDATA[# RxTract
+# RxTract
 
-> **AI-Powered Prescription Analyzer & RAG System** — Upload prescriptions, get instant medicine analysis with real alternatives from the Egyptian Drug Authority (EDA), and ask questions about your documents using Retrieval-Augmented Generation.
+> **AI-Powered Prescription Analyzer & RAG System** -- Upload prescriptions, get instant medicine analysis with real alternatives from the Egyptian Drug Authority (EDA), and ask questions about your documents using Retrieval-Augmented Generation.
 
 ---
 
-## ✨ Key Features
+## Key Features
 
-### 🔬 Prescription Analysis (OCR → AI)
+### Prescription Analysis (OCR to AI)
+
 - **Multi-provider OCR**: Supports Gemini Vision, OpenAI Vision, EasyOCR, and LlamaParse
 - **Intelligent medicine extraction**: Algorithmic fallback when LLM extraction fails
 - **Real-time progress**: Server-Sent Events (SSE) stream each pipeline step to the UI
 - **EDA medicine matching**: Fuzzy-matches extracted medicines against the Egyptian Drug Authority database and suggests real alternatives
-- **End-to-end pipeline**: OCR → Extraction → Enrichment → Database Matching → Response
+- **End-to-end pipeline**: OCR > Extraction > Enrichment > Database Matching > Response
 
-### 📄 RAG Document Q&A
+### RAG Document Q&A
+
 - **Multi-format ingestion**: PDF, TXT, Markdown, JSON, CSV, DOCX
 - **Hybrid search**: Dense vector search + BM25 sparse retrieval with configurable alpha blending
 - **Multiple LLM providers**: OpenAI, Google Gemini, Cohere, HuggingFace, and Ollama (local)
 - **Multiple vector databases**: PostgreSQL with pgvector or Qdrant
 - **Semantic search**: Natural language queries across indexed documents
 
-### 🔐 Security & Auth
+### Security and Auth
+
 - **JWT authentication**: Secure login/register with token-based access control
 - **Email verification**: Brevo (Sendinblue) integration for account verification
 - **Prompt injection guard**: Detects and blocks injection attempts in user queries
 - **Content filtering**: Output leakage prevention for sensitive data
 - **Rate limiting**: Per-IP rate limiting via SlowAPI
 
-### 📊 Monitoring & Observability
+### Monitoring and Observability
+
 - **Prometheus metrics**: Custom application metrics with auto-instrumented endpoints
 - **Grafana dashboards**: Pre-configured visualization for system health
 - **Node Exporter**: Hardware and OS metrics from the host machine
@@ -35,7 +39,7 @@
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```mermaid
 flowchart TB
@@ -47,7 +51,7 @@ flowchart TB
         Nginx[Nginx]
     end
 
-    subgraph Backend["Backend — FastAPI"]
+    subgraph Backend["Backend -- FastAPI"]
         Auth["Auth Routes<br/>JWT + Email Verify"]
         DataRoutes["Data Routes<br/>Upload / Process"]
         NLPRoutes["NLP Routes<br/>Index / Search / Answer"]
@@ -94,21 +98,21 @@ flowchart TB
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
 | Tool | Version | Purpose |
 |------|---------|---------|
-| **Python** | 3.11+ | Backend runtime |
-| **Node.js** | 18+ | Frontend build |
-| **pnpm** | latest | Frontend package manager |
-| **Docker** | 20+ | Database containers |
-| **uv** | latest | Python dependency management (recommended) |
+| Python | 3.11+ | Backend runtime |
+| Node.js | 18+ | Frontend build |
+| pnpm | latest | Frontend package manager |
+| Docker | 20+ | Database containers |
+| uv | latest | Python dependency management (recommended) |
 
 ### Option A: Hybrid Development (Recommended)
 
-> Docker runs only the databases. Backend and frontend run locally for fast iteration with hot-reload.
+Docker runs only the databases. Backend and frontend run locally for fast iteration with hot-reload.
 
 #### 1. Clone the Repository
 
@@ -133,9 +137,9 @@ Open `.env` and configure your API keys and preferences:
 | `OCR_BACKEND` | Prescription OCR provider | `GEMINI`, `OPENAI`, `EASYOCR`, `LLAMAPARSE` |
 | `VECTORDB_BACKEND` | Vector database | `PGVECTOR`, `QDRANT` |
 | `JWT_SECRET` | Token signing key | Generate with `python3 -c "import secrets; print(secrets.token_hex(32))"` |
-| `BREVO_API_KEY` | Email verification API key | Get from [Brevo Dashboard](https://app.brevo.com) |
+| `BREVO_API_KEY` | Email verification API key | Get from Brevo Dashboard |
 
-> **⚠️ Important:** Change `JWT_SECRET` from the default value before deploying to production.
+> **Important:** Change `JWT_SECRET` from the default value before deploying to production.
 
 #### 3. Start Everything with One Command
 
@@ -145,13 +149,15 @@ bash dev.sh
 ```
 
 This script will:
-1. 🐳 Start **PostgreSQL (pgvector)** and **Qdrant** via Docker
-2. ⏳ Wait for databases to become healthy
-3. 🐍 Launch the **FastAPI backend** with hot-reload on port `8000`
-4. ⚛️ Launch the **Vite frontend** with HMR on port `5777`
-5. 📋 Tail all logs in your terminal
+
+1. Start **PostgreSQL (pgvector)** and **Qdrant** via Docker
+2. Wait for databases to become healthy
+3. Launch the **FastAPI backend** with hot-reload on port `8000`
+4. Launch the **Vite frontend** with HMR on port `5777`
+5. Tail all logs in your terminal
 
 **To stop everything:**
+
 ```bash
 # Press Ctrl+C in the running terminal
 # OR run:
@@ -162,16 +168,16 @@ bash dev-stop.sh
 
 | Service | URL |
 |---------|-----|
-| **Frontend** | http://localhost:5777 |
-| **API Docs** | http://localhost:8000/docs |
-| **PostgreSQL** | `localhost:5433` |
-| **Qdrant Dashboard** | http://localhost:6333/dashboard |
+| Frontend | `http://localhost:5777` |
+| API Docs | `http://localhost:8000/docs` |
+| PostgreSQL | `localhost:5433` |
+| Qdrant Dashboard | `http://localhost:6333/dashboard` |
 
 ---
 
 ### Option B: Full Docker Deployment (Production)
 
-> Everything runs inside Docker containers, including Nginx reverse proxy and monitoring.
+Everything runs inside Docker containers, including Nginx reverse proxy and monitoring.
 
 ```bash
 cd Docker
@@ -181,51 +187,51 @@ docker compose up -d --build
 
 | Service | URL |
 |---------|-----|
-| **Application** | http://localhost (via Nginx) |
-| **API** | http://localhost:8000 |
-| **Grafana** | http://localhost:3000 |
-| **Prometheus** | http://localhost:9090 |
+| Application | `http://localhost` (via Nginx) |
+| API | `http://localhost:8000` |
+| Grafana | `http://localhost:3000` |
+| Prometheus | `http://localhost:9090` |
 
 See [Docker/README.md](Docker/README.md) for detailed configuration.
 
 ---
 
-## 📖 System Workflow
+## System Workflow
 
-### 1. User Registration & Login
+### 1. User Registration and Login
 
 ```
-Register → Email Verification (Brevo) → Login → JWT Token → Access Protected Routes
+Register -> Email Verification (Brevo) -> Login -> JWT Token -> Access Protected Routes
 ```
 
 ### 2. Prescription Analysis Pipeline
 
 ```
-Upload Image → OCR (Vision AI) → Extract Medicines → Match EDA Database → Return Alternatives
+Upload Image -> OCR (Vision AI) -> Extract Medicines -> Match EDA Database -> Return Alternatives
 ```
 
 Each step streams real-time progress via SSE:
 
 | Step | Description |
 |------|-------------|
-| **OCR** | Extracts raw text from the prescription image using the configured vision provider |
-| **Extraction** | Identifies medicine names, dosages, and instructions from the raw OCR text |
-| **Enrichment** | Cross-references extracted medicines with the EDA database (~40,000+ products) |
-| **Response** | Returns structured results with real alternatives and pricing |
+| OCR | Extracts raw text from the prescription image using the configured vision provider |
+| Extraction | Identifies medicine names, dosages, and instructions from the raw OCR text |
+| Enrichment | Cross-references extracted medicines with the EDA database (~40,000+ products) |
+| Response | Returns structured results with real alternatives and pricing |
 
 ### 3. RAG Document Pipeline
 
 ```
-Upload Document → Process (Chunk) → Generate Embeddings → Index in Vector DB → Query
+Upload Document -> Process (Chunk) -> Generate Embeddings -> Index in Vector DB -> Query
 ```
 
 | Step | Endpoint | Description |
 |------|----------|-------------|
-| **Upload** | `POST /api/v1/data/upload/{project_id}` | Upload PDF, TXT, MD, JSON, CSV, or DOCX |
-| **Process** | `POST /api/v1/data/process/{project_id}` | Split into configurable chunks |
-| **Index** | `POST /api/v1/nlp/index/push/{project_id}` | Embed and store in vector database |
-| **Search** | `POST /api/v1/nlp/index/search/{project_id}` | Semantic similarity search |
-| **Answer** | `POST /api/v1/nlp/index/answer/{project_id}` | RAG-powered Q&A with context |
+| Upload | `POST /api/v1/data/upload/{project_id}` | Upload PDF, TXT, MD, JSON, CSV, or DOCX |
+| Process | `POST /api/v1/data/process/{project_id}` | Split into configurable chunks |
+| Index | `POST /api/v1/nlp/index/push/{project_id}` | Embed and store in vector database |
+| Search | `POST /api/v1/nlp/index/search/{project_id}` | Semantic similarity search |
+| Answer | `POST /api/v1/nlp/index/answer/{project_id}` | RAG-powered Q&A with context |
 
 ### 4. Medicine Database Update
 
@@ -234,16 +240,17 @@ Update the local EDA medicine database:
 ```bash
 uv run python3 SRC/scripts/scrape_eda.py
 ```
+
 1. Solve the CAPTCHA shown in `captcha.jpg`
 2. Results saved to `SRC/Assets/Files/eda_medicines.csv`
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 rxtract/
-├── SRC/                          # Backend — FastAPI Application
+├── SRC/                          # Backend -- FastAPI Application
 │   ├── main.py                   # App entry point, middleware, router setup
 │   ├── Routes/                   # API endpoint definitions
 │   │   ├── Auth.py               # Register, login, email verification
@@ -271,7 +278,7 @@ rxtract/
 │   │   └── process_embeddings.py # Batch embedding processor
 │   └── .env.example              # Environment template
 │
-├── frontend/                     # Frontend — React SPA
+├── frontend/                     # Frontend -- React SPA
 │   ├── src/
 │   │   ├── pages/                # Application pages
 │   │   │   ├── PrescriptionPage  # OCR analysis with progress streaming
@@ -293,15 +300,15 @@ rxtract/
 │   ├── Prometheus/               # Metrics scraping config
 │   └── env/                      # Container environment files
 │
-├── dev.sh                        # 🚀 One-command dev environment launcher
-├── dev-stop.sh                   # 🛑 Graceful shutdown script
+├── dev.sh                        # One-command dev environment launcher
+├── dev-stop.sh                   # Graceful shutdown script
 ├── API.md                        # Complete API reference
 └── project_workflow.md           # System workflow diagrams
 ```
 
 ---
 
-## ⚙️ Configuration Reference
+## Configuration Reference
 
 ### LLM Providers
 
@@ -326,22 +333,22 @@ rxtract/
 
 | Database | Backend Value | Default Port | Notes |
 |----------|---------------|--------------|-------|
-| PostgreSQL + pgvector | `PGVECTOR` | 5433 | Recommended — uses existing PostgreSQL |
+| PostgreSQL + pgvector | `PGVECTOR` | 5433 | Recommended, uses existing PostgreSQL |
 | Qdrant | `QDRANT` | 6333 | High-performance, standalone vector DB |
 
 ---
 
-## 🌐 Self-Hosting Guide
+## Self-Hosting Guide
 
 Turn any computer into a professional RxTract server using Cloudflare Tunnel.
 
-### Phase 1: Hardware & OS
+### Phase 1: Hardware and OS
 
 - **Hardware**: Any computer with 4GB+ RAM (old laptop recommended for built-in UPS)
 - **Connection**: Ethernet cable for stability
 - **OS**: Ubuntu Server 24.04 LTS (enable OpenSSH during installation)
 
-### Phase 2: Install & Deploy
+### Phase 2: Install and Deploy
 
 ```bash
 # SSH into your server
@@ -379,8 +386,8 @@ sudo dpkg -i cloudflared.deb
 cloudflared tunnel --url http://localhost:80
 
 # For permanent setup:
-# 1. Create Cloudflare account → Zero Trust → Tunnels
-# 2. Public Hostname: rxtract.yourdomain.com → HTTP → localhost:80
+# 1. Create Cloudflare account -> Zero Trust -> Tunnels
+# 2. Public Hostname: rxtract.yourdomain.com -> HTTP -> localhost:80
 ```
 
 ### Troubleshooting
@@ -388,18 +395,13 @@ cloudflared tunnel --url http://localhost:80
 | Issue | Solution |
 |-------|----------|
 | Cannot connect to Docker daemon | `docker context use default` or `sudo systemctl start docker` |
-| Server restarts after power outage | Configure BIOS → "Power On After Power Failure" |
+| Server restarts after power outage | Configure BIOS: Power On After Power Failure |
 
 ---
 
-## 📚 Additional Documentation
+## Additional Documentation
 
-- **[API Reference](API.md)** — Complete REST API documentation
-- **[System Workflow](project_workflow.md)** — Detailed pipeline diagrams
-- **[Docker Guide](Docker/README.md)** — Container configuration and management
-- **[Frontend Guide](frontend/README.md)** — React SPA setup and structure
-
-## 📝 License
-
-Apache License 2.0 — see [LICENCE](LICENCE) for details.
-]]>
+- [API Reference](API.md) -- Complete REST API documentation
+- [System Workflow](project_workflow.md) -- Detailed pipeline diagrams
+- [Docker Guide](Docker/README.md) -- Container configuration and management
+- [Frontend Guide](frontend/README.md) -- React SPA setup and structure
