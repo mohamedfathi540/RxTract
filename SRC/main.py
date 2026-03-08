@@ -12,6 +12,7 @@ from Routes import Auth
 from Helpers.Config import get_settings
 from Stores.LLM.LLMProviderFactory import LLMProviderFactory
 from Stores.VectorDB.VectorDBProviderFactory import VectorDBProviderFactory
+from Stores.OCR.OCRProviderFactory import OCRProviderFactory
 from Stores.LLM.Templates.template_parser import template_parser as TemplateParser
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
@@ -71,8 +72,9 @@ async def startup_span():
     )
 
     # OCR Client (for prescription analysis)
+    ocr_provider_factory = OCRProviderFactory(settings)
     ocr_backend = getattr(settings, "OCR_BACKEND", "LLAMAPARSE").upper()
-    app.ocr_client = llm_provider_factory.create_ocr(ocr_backend=ocr_backend)
+    app.ocr_client = ocr_provider_factory.create(provider=ocr_backend)
 
     # VectorDB Client
     app.vectordb_client = vectordb_provider_factory.create(provider=settings.VECTORDB_BACKEND)

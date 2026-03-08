@@ -8,9 +8,11 @@ Supports multiple OCR backends configured via OCR_BACKEND in .env:
   - OPENAI: OpenAI Vision (requires OPENAI_API_KEY)
   - EASYOCR: Local OCR via EasyOCR (no API key required)
 
-Local backends (EASYOCR) extract raw text, then
-pass it to the LLM for medicine name extraction.
-Vision backends (GEMINI, OPENAI) read the image directly.
+All backends go through a unified pipeline:
+  1. Preprocess the image (denoise, deskew)
+  2. Run OCR via the configured provider
+  3. Extract medicine names (LLM for text providers, parse JSON for vision)
+  4. Enrich with active ingredients + image URLs
 """
 import os
 import re
@@ -71,198 +73,86 @@ class PrescriptionController(basecontroller):
         on_progress=None,
     ) -> dict:
         """
-        Full pipeline:
-        1. OCR / vision-read the prescription image (based on OCR_BACKEND)
-        2. Extract medicine names + active ingredients
-        3. Build Google Image search URLs
+        Unified pipeline:
+        1. Preprocess the image (denoise, deskew) — always applied
+        2. OCR via the configured provider
+        3. Extract medicine names + active ingredients
+        4. Build Google Image search URLs
 
         Args:
             file_path: Path to the prescription image
             genration_client: LLM provider for text generation (used by
-                              LLAMAPARSE pipeline for medicine extraction)
-            ocr_client: OCR provider created by LLMProviderFactory.create_ocr()
-                        None if OCR_BACKEND is LLAMAPARSE
+                              text-based OCR providers for medicine extraction)
+            ocr_client: OCR provider created by OCRProviderFactory
             on_progress: Optional async callback(step, detail, percent)
-        """
-        if on_progress is None:
-            async def on_progress(step, detail, percent): pass
-
-        ocr_backend = getattr(
-            self.settings, "OCR_BACKEND", "LLAMAPARSE"
-        ).upper()
-        logger.info("Using OCR backend: %s", ocr_backend)
-
-        if ocr_backend == "LLAMAPARSE":
-            # LlamaParse text OCR → LLM extraction
-            return await self._pipeline_llamaparse(
-                file_path, genration_client, on_progress
-            )
-        elif ocr_backend == "EASYOCR":
-            # Local EasyOCR text OCR → LLM extraction
-            return await self._pipeline_easyocr(
-                file_path, genration_client, on_progress
-            )
-
-        else:
-            # Vision-based OCR via the provider's ocr_image method
-            if ocr_client is None:
-                raise ValueError(
-                    f"OCR_BACKEND is set to '{ocr_backend}' but no OCR "
-                    f"client was initialized. Check your API key in .env."
-                )
-            return await self._pipeline_vision(file_path, ocr_client, on_progress)
-
-    # =================================================================
-    # PIPELINE A: LlamaParse OCR → HuggingFace LLM extraction
-    # =================================================================
-    async def _pipeline_llamaparse(
-        self, file_path: str, genration_client, on_progress=None
-    ) -> dict:
-        """LlamaParse text OCR → LLM medicine extraction pipeline."""
-        if on_progress is None:
-            async def on_progress(step, detail, percent): pass
-
-        await on_progress("ocr", "Extracting text from image (LlamaParse)...", 15)
-        ocr_text = await self._ocr_llamaparse(file_path)
-        if not ocr_text.strip():
-            return {"ocr_text": "", "medicines": []}
-
-        await on_progress("extraction", "Identifying medicine names...", 40)
-        medicines_raw = await self._llm_extract_medicines(
-            ocr_text, genration_client
-        )
-        
-        # Only use algorithmic fallback if LLM extraction completely fails
-        if not medicines_raw:
-            algo_medicines = self.medicine_matcher.extract_medicines_from_text(ocr_text)
-            if not algo_medicines:
-                return {"ocr_text": ocr_text, "medicines": []}
-            await on_progress("enrichment", "Looking up active ingredients...", 65)
-            medicines = await self._enrich_medicines(algo_medicines)
-        else:
-            await on_progress("enrichment", "Looking up active ingredients...", 65)
-            medicines = await self._enrich_medicines(medicines_raw)
-            
-        return {"ocr_text": ocr_text, "medicines": medicines}
-
-    # =================================================================
-    # PIPELINE C: EasyOCR (Local) → LLM extraction
-    # =================================================================
-    async def _pipeline_easyocr(
-        self, file_path: str, genration_client, on_progress=None
-    ) -> dict:
-        """EasyOCR text extraction → LLM medicine extraction pipeline."""
-        if on_progress is None:
-            async def on_progress(step, detail, percent): pass
-
-        await on_progress("ocr", "Extracting text from image (EasyOCR)...", 15)
-        ocr_text = await self._ocr_easyocr(file_path)
-        if not ocr_text.strip():
-            return {"ocr_text": "", "medicines": []}
-
-        await on_progress("extraction", "Identifying medicine names...", 40)
-        medicines_raw = await self._llm_extract_medicines(
-            ocr_text, genration_client
-        )
-        
-        # Only use algorithmic fallback if LLM extraction completely fails
-        if not medicines_raw:
-            algo_medicines = self.medicine_matcher.extract_medicines_from_text(ocr_text)
-            if not algo_medicines:
-                return {"ocr_text": ocr_text, "medicines": []}
-            await on_progress("enrichment", "Looking up active ingredients...", 65)
-            medicines = await self._enrich_medicines(algo_medicines)
-        else:
-            await on_progress("enrichment", "Looking up active ingredients...", 65)
-            medicines = await self._enrich_medicines(medicines_raw)
-            
-        return {"ocr_text": ocr_text, "medicines": medicines}
-
-
-
-    def _preprocess_image_cv2(self, file_path: str) -> str:
-        """Clean image using OpenCV (remove noise, fix rotation)."""
-        import cv2
-        import numpy as np
-        
-        img = cv2.imread(file_path, cv2.IMREAD_COLOR)
-        if img is None:
-            return file_path
-            
-        # Convert to grayscale
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        
-        # Denoising
-        denoised = cv2.fastNlMeansDenoising(gray, h=30)
-        
-        # Binarization (adaptive thresholding)
-        thresh = cv2.adaptiveThreshold(denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
-        
-        # Find coordinates of non-zero pixels to deskew
-        coords = np.column_stack(np.where(thresh == 0))
-        angle = cv2.minAreaRect(coords)[-1]
-        
-        if angle < -45:
-            angle = -(90 + angle)
-        else:
-            angle = -angle
-            
-        if abs(angle) > 20: 
-            angle = 0
-            
-        (h, w) = img.shape[:2]
-        center = (w // 2, h // 2)
-        M = cv2.getRotationMatrix2D(center, angle, 1.0)
-        rotated = cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
-        
-        output_path = file_path + "_cleaned.png"
-        cv2.imwrite(output_path, rotated)
-        return output_path
-
-
-
-    # =================================================================
-    # PIPELINE B: Vision OCR (uses provider.ocr_image)
-    # =================================================================
-    async def _pipeline_vision(
-        self, file_path: str, ocr_client, on_progress=None
-    ) -> dict:
-        """
-        Send image to the OCR provider's ocr_image method.
-        Works with any provider that implements LLMInterface.ocr_image.
         """
         from fastapi.concurrency import run_in_threadpool
 
         if on_progress is None:
             async def on_progress(step, detail, percent): pass
 
-        await on_progress("ocr", "Sending image to vision AI...", 15)
+        if ocr_client is None:
+            raise ValueError(
+                "No OCR client was initialized. Check OCR_BACKEND "
+                "and the corresponding API key in .env."
+            )
 
-        # Call the provider's ocr_image (synchronous) in a thread pool
-        raw_response = await run_in_threadpool(
-            ocr_client.ocr_image,
-            image_path=file_path,
-            prompt=vision_extraction_prompt.substitute(
-                common_medicines_list=COMMON_MEDICINES_LIST.replace("$", "$$")
-            ),
-            max_output_tokens=int(getattr(self.settings, "OCR_MAX_OUTPUT_TOKENS", 8192)),
-            temperature=float(getattr(self.settings, "OCR_TEMPERATURE", 0.2)),
+        # ── Step 1: Preprocess image (always applied) ───────────────
+        await on_progress("preprocess", "Preprocessing image...", 10)
+        cleaned_path = await run_in_threadpool(
+            ocr_client.preprocess_image, file_path
         )
+        logger.info("Image preprocessed: %s → %s", file_path, cleaned_path)
 
-        if not raw_response:
-            logger.warning("OCR provider returned no response")
-            return {"ocr_text": "", "medicines": []}
+        # ── Step 2: Run OCR ─────────────────────────────────────────
+        await on_progress("ocr", "Extracting text from image...", 20)
 
-        logger.info("Raw Vision OCR Response (len=%d): %s", len(raw_response), raw_response)
+        if ocr_client.is_vision_provider:
+            # Vision providers get the extraction prompt and return JSON
+            raw_response = await run_in_threadpool(
+                ocr_client.ocr_image,
+                image_path=cleaned_path,
+                prompt=vision_extraction_prompt.substitute(
+                    common_medicines_list=COMMON_MEDICINES_LIST.replace("$", "$$")
+                ),
+                max_output_tokens=int(
+                    getattr(self.settings, "OCR_MAX_OUTPUT_TOKENS", 8192)
+                ),
+                temperature=float(
+                    getattr(self.settings, "OCR_TEMPERATURE", 0.2)
+                ),
+            )
 
-        await on_progress("extraction", "Parsing medicine data from response...", 45)
+            if not raw_response:
+                logger.warning("OCR provider returned no response")
+                return {"ocr_text": "", "medicines": []}
 
-        # Parse the JSON response
-        medicines_raw, ocr_text = self._parse_vision_response(raw_response)
+            logger.info(
+                "Vision OCR response (len=%d): %s", len(raw_response), raw_response
+            )
 
-        # Only use algorithmic fallback if LLM extraction completely fails
+            await on_progress("extraction", "Parsing medicine data...", 45)
+            medicines_raw, ocr_text = self._parse_vision_response(raw_response)
+        else:
+            # Text-based providers return raw OCR text
+            ocr_text = await run_in_threadpool(
+                ocr_client.ocr_image,
+                image_path=cleaned_path,
+            )
+
+            if not ocr_text or not ocr_text.strip():
+                return {"ocr_text": "", "medicines": []}
+
+            await on_progress("extraction", "Identifying medicine names...", 40)
+            medicines_raw = await self._llm_extract_medicines(
+                ocr_text, genration_client
+            )
+
+        # ── Step 3: Fallback to algorithmic extraction ──────────────
         if not medicines_raw:
-            algo_medicines = self.medicine_matcher.extract_medicines_from_text(ocr_text)
+            algo_medicines = self.medicine_matcher.extract_medicines_from_text(
+                ocr_text
+            )
             if not algo_medicines:
                 return {"ocr_text": ocr_text, "medicines": []}
             await on_progress("enrichment", "Looking up active ingredients...", 65)
@@ -270,7 +160,7 @@ class PrescriptionController(basecontroller):
         else:
             await on_progress("enrichment", "Looking up active ingredients...", 65)
             medicines = await self._enrich_medicines(medicines_raw)
-            
+
         return {"ocr_text": ocr_text, "medicines": medicines}
 
     @staticmethod
@@ -368,87 +258,7 @@ class PrescriptionController(basecontroller):
         return merged
 
     # =================================================================
-    # LlamaParse OCR
-    # =================================================================
-    async def _ocr_llamaparse(self, file_path: str) -> str:
-        """Use LlamaParse to OCR an image file and return extracted text."""
-        from llama_parse import LlamaParse
-
-        api_key = self.settings.LLAMA_CLOUD_API_KEY
-        if not api_key or api_key == "llx-REPLACE_WITH_YOUR_KEY":
-            raise ValueError(
-                "LLAMA_CLOUD_API_KEY is not set in .env — "
-                "get a free key from https://cloud.llamaindex.ai/"
-            )
-
-        parser = LlamaParse(
-            api_key=api_key,
-            result_type="text",
-            premium_mode=True,
-            skip_diagonal_text=False,
-            do_not_unroll_columns=True,
-            system_prompt=(
-                "This is a handwritten medical prescription from a doctor. "
-                "Your ONLY job is to extract ALL text from this image as "
-                "accurately as possible, especially MEDICINE and DRUG NAMES.\n\n"
-                "CRITICAL INSTRUCTIONS:\n"
-                "1. Prescriptions have NUMBERED items (1, 2, 3, 4, etc). "
-                "Find and extract the text for EVERY numbered item.\n"
-                "2. Medicine names are in Latin/English letters even if the "
-                "rest is Arabic.\n"
-                "3. Common medicine names: Augmentin, Moxclav, Panadol, "
-                "Cataflam, Voltaren, Brufen, Antinal, Flagyl, Nexium, "
-                "Omeprazole, Phenadon, Phinex, Rhinex, Kongestal, Comtrex, "
-                "Ciprocin, Xithrone, Glucophage, Amaryl, Concor, Ventolin, "
-                "Symbicort, Prednisolone, Aspocid, Megamox, Hibiotic.\n"
-                "4. Even if partially illegible, write your best guess. "
-                "Do NOT skip anything.\n"
-                "5. Include dosage and instructions — extract EVERYTHING."
-            ),
-        )
-
-        documents = await parser.aload_data(file_path)
-        if not documents:
-            return ""
-
-        full_text = "\n".join(doc.text for doc in documents)
-        logger.info("LlamaParse OCR extracted %d characters", len(full_text))
-        logger.info("OCR text:\n%s", full_text)
-        return full_text
-
-    # =================================================================
-    # EasyOCR (Local)
-    # =================================================================
-    async def _ocr_easyocr(self, file_path: str) -> str:
-        """Use local EasyOCR to extract text from an image."""
-        try:
-            import easyocr
-            from fastapi.concurrency import run_in_threadpool
-        except ImportError:
-            raise ImportError(
-                "easyocr is not installed. Please install it with: "
-                "pip install easyocr"
-            )
-
-        logger.info("Starting EasyOCR processing...")
-        
-        def run_easyocr():
-            # Initialize reader for English. Arabic model requires download.
-            # GPU=True if available, else False.
-            reader = easyocr.Reader(['en'], gpu=True)
-            result = reader.readtext(file_path, detail=0, paragraph=True)
-            return "\n".join(result)
-
-        full_text = await run_in_threadpool(run_easyocr)
-        
-        logger.info("EasyOCR extracted %d characters", len(full_text))
-        logger.info("OCR text:\n%s", full_text)
-        return full_text
-
-
-
-    # =================================================================
-    # LLM-based medicine extraction (used by LlamaParse pipeline)
+    # LLM-based medicine extraction (used by text-based OCR providers)
     # =================================================================
     async def _llm_extract_medicines(
         self, ocr_text: str, genration_client
