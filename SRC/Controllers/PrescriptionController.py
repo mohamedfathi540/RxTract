@@ -76,8 +76,9 @@ class PrescriptionController(basecontroller):
         Unified pipeline:
         1. Preprocess the image (denoise, deskew) — always applied
         2. OCR via the configured provider
-        3. Extract medicine names + active ingredients
-        4. Build Google Image search URLs
+        3. Parse response via ocr_client.parse_response()
+        4. If text-based OCR, extract medicines via LLM
+        5. Enrich with active ingredients + image URLs
 
         Args:
             file_path: Path to the prescription image
@@ -97,7 +98,7 @@ class PrescriptionController(basecontroller):
                 "and the corresponding API key in .env."
             )
 
-        # ── Step 1: Preprocess image (always applied) ───────────────
+        # ── Step 1: Preprocess image ────────────────────────────────
         await on_progress("preprocess", "Preprocessing image...", 10)
         cleaned_path = await run_in_threadpool(
             ocr_client.preprocess_image, file_path
@@ -106,49 +107,39 @@ class PrescriptionController(basecontroller):
 
         # ── Step 2: Run OCR ─────────────────────────────────────────
         await on_progress("ocr", "Extracting text from image...", 20)
+        raw_response = await run_in_threadpool(
+            ocr_client.ocr_image,
+            image_path=cleaned_path,
+            prompt=vision_extraction_prompt.substitute(
+                common_medicines_list=COMMON_MEDICINES_LIST.replace("$", "$$")
+            ),
+            max_output_tokens=int(
+                getattr(self.settings, "OCR_MAX_OUTPUT_TOKENS", 8192)
+            ),
+            temperature=float(
+                getattr(self.settings, "OCR_TEMPERATURE", 0.2)
+            ),
+        )
 
-        if ocr_client.is_vision_provider:
-            # Vision providers get the extraction prompt and return JSON
-            raw_response = await run_in_threadpool(
-                ocr_client.ocr_image,
-                image_path=cleaned_path,
-                prompt=vision_extraction_prompt.substitute(
-                    common_medicines_list=COMMON_MEDICINES_LIST.replace("$", "$$")
-                ),
-                max_output_tokens=int(
-                    getattr(self.settings, "OCR_MAX_OUTPUT_TOKENS", 8192)
-                ),
-                temperature=float(
-                    getattr(self.settings, "OCR_TEMPERATURE", 0.2)
-                ),
-            )
+        if not raw_response:
+            logger.warning("OCR provider returned no response")
+            return {"ocr_text": "", "medicines": []}
 
-            if not raw_response:
-                logger.warning("OCR provider returned no response")
-                return {"ocr_text": "", "medicines": []}
+        # ── Step 3: Parse OCR response ──────────────────────────────
+        await on_progress("extraction", "Parsing medicine data...", 40)
+        medicines_raw, ocr_text = ocr_client.parse_response(raw_response)
 
-            logger.info(
-                "Vision OCR response (len=%d): %s", len(raw_response), raw_response
-            )
+        if not ocr_text or not ocr_text.strip():
+            return {"ocr_text": "", "medicines": []}
 
-            await on_progress("extraction", "Parsing medicine data...", 45)
-            medicines_raw, ocr_text = self._parse_vision_response(raw_response)
-        else:
-            # Text-based providers return raw OCR text
-            ocr_text = await run_in_threadpool(
-                ocr_client.ocr_image,
-                image_path=cleaned_path,
-            )
-
-            if not ocr_text or not ocr_text.strip():
-                return {"ocr_text": "", "medicines": []}
-
-            await on_progress("extraction", "Identifying medicine names...", 40)
+        # ── Step 4: LLM extraction for text-based providers ─────────
+        if not medicines_raw:
+            await on_progress("extraction", "Identifying medicine names...", 45)
             medicines_raw = await self._llm_extract_medicines(
                 ocr_text, genration_client
             )
 
-        # ── Step 3: Fallback to algorithmic extraction ──────────────
+        # ── Step 5: Fallback to algorithmic extraction ──────────────
         if not medicines_raw:
             algo_medicines = self.medicine_matcher.extract_medicines_from_text(
                 ocr_text
@@ -162,100 +153,6 @@ class PrescriptionController(basecontroller):
             medicines = await self._enrich_medicines(medicines_raw)
 
         return {"ocr_text": ocr_text, "medicines": medicines}
-
-    @staticmethod
-    def _parse_vision_response(text: str) -> tuple:
-        """Parse the JSON response from a vision OCR provider."""
-        text = text.strip()
-        if text.startswith("```"):
-            text = re.sub(r"^```(?:json)?\s*", "", text)
-            text = re.sub(r"\s*```$", "", text)
-        text = text.strip()
-
-        try:
-            data = json.loads(text)
-            ocr_text = data.get("ocr_text", "")
-            medicines = []
-
-            for m in data.get("medicines", []):
-                if isinstance(m, dict) and m.get("name"):
-                    medicines.append({
-                        "name": m["name"].strip(),
-                        "active_ingredient": m.get(
-                            "active_ingredient", "Unknown"
-                        ).strip(),
-                        "dosage": m.get("dosage", "Unknown").strip() if m.get("dosage") else "Unknown",
-                        "form": m.get("form", "Unknown").strip() if m.get("form") else "Unknown",
-                    })
-
-            logger.info(
-                "Vision OCR extracted %d medicines: %s",
-                len(medicines),
-                [(m["name"], m["active_ingredient"]) for m in medicines],
-            )
-            logger.info("Vision OCR text:\n%s", ocr_text)
-            return medicines, ocr_text
-
-        except json.JSONDecodeError as e:
-            logger.error("Failed to parse vision OCR response: %s", e)
-            logger.error("Raw text: %s", text[:500])
-
-            # Attempt to salvage ocr_text from truncated JSON
-            ocr_text = ""
-            match = re.search(r'"ocr_text"\s*:\s*"((?:[^"\\]|\\.)*)', text)
-            if match:
-                ocr_text = match.group(1)
-                try:
-                    ocr_text = json.loads('"' + ocr_text + '"')
-                except json.JSONDecodeError:
-                    pass
-
-            # Attempt to salvage medicine entries (complete or truncated)
-            medicines = []
-            for m in re.finditer(
-                r'\{\s*"name"\s*:\s*"(?P<name>[^"]+)"'
-                r'(?:.*?"active_ingredient"\s*:\s*"(?P<ai>[^"]+)")?'
-                r'(?:.*?"dosage"\s*:\s*"(?P<dosage>[^"]+)")?'
-                r'(?:.*?"form"\s*:\s*"(?P<form>[^"]+)")?'
-                r'(?:.*?"confidence_score"\s*:\s*[\d.]+)?'
-                r'(?:\s*\})?',
-                text,
-                re.DOTALL,
-            ):
-                name = m.group("name").strip()
-                ai = (m.group("ai") or "Unknown").strip()
-                dosage = (m.group("dosage") or "Unknown").strip()
-                form = (m.group("form") or "Unknown").strip()
-                if name:
-                    medicines.append({
-                        "name": name,
-                        "active_ingredient": ai,
-                        "dosage": dosage,
-                        "form": form,
-                    })
-
-            if ocr_text or medicines:
-                logger.info(
-                    "Salvaged from truncated response: ocr_text(len=%d), %d medicines",
-                    len(ocr_text), len(medicines),
-                )
-            return medicines, ocr_text
-
-    @staticmethod
-    def _merge_medicines(list1: list, list2: list) -> list:
-        """Merge two lists of extracted medicines, avoiding duplicates by name."""
-        merged = []
-        seen = set()
-        for m in list1 + list2:
-            if not m or not isinstance(m, dict) or "name" not in m:
-                continue
-            name_lower = m["name"].strip().lower()
-            if not name_lower:
-                continue
-            if name_lower not in seen:
-                merged.append(m)
-                seen.add(name_lower)
-        return merged
 
     # =================================================================
     # LLM-based medicine extraction (used by text-based OCR providers)

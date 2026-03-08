@@ -112,13 +112,3 @@ class CohereProvider(LLMInterface):
     def construct_prompt(self, prompt: str, role: str):
         # Cohere expects 'role' and 'message' (or 'text' in some contexts, but 'message' is standard for chat history objects)
         return {"role": role, "text": prompt}
-
-    def ocr_image(self, image_path: str, prompt: str,
-                  max_output_tokens: int = None,
-                  temperature: float = None):
-        """Cohere does not support vision OCR."""
-        self.logger.warning(
-            "OCR not supported by Cohere provider. "
-            "Use GEMINI as OCR_BACKEND instead."
-        )
-        return None

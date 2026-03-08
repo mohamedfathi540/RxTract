@@ -105,13 +105,3 @@ class HuggingFaceProvider(LLMInterface):
 
     def construct_prompt(self, prompt: str, role: str):
         return {"role": role, "content": prompt}
-
-    def ocr_image(self, image_path: str, prompt: str,
-                  max_output_tokens: int = None,
-                  temperature: float = None):
-        """HuggingFace Inference API does not support vision OCR."""
-        self.logger.warning(
-            "OCR not supported by HuggingFace provider. "
-            "Use GEMINI as OCR_BACKEND instead."
-        )
-        return None
