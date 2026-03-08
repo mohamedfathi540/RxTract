@@ -9,10 +9,12 @@
 ### Prescription Analysis (OCR to AI)
 
 - **Multi-provider OCR**: Supports Gemini Vision, OpenAI Vision, EasyOCR, and LlamaParse
-- **Intelligent medicine extraction**: Algorithmic fallback when LLM extraction fails
+- **Image preprocessing**: Automatic denoising, binarization, and deskew via OpenCV before OCR
+- **Intelligent medicine extraction**: LLM-based extraction with algorithmic fallback
 - **Real-time progress**: Server-Sent Events (SSE) stream each pipeline step to the UI
-- **EDA medicine matching**: Fuzzy-matches extracted medicines against the Egyptian Drug Authority database and suggests real alternatives
-- **End-to-end pipeline**: OCR > Extraction > Enrichment > Database Matching > Response
+- **EDA medicine matching**: Fuzzy-matches extracted medicines against the Egyptian Drug Authority database (~40,000+ products) and suggests real alternatives with pricing
+- **Auto-index into RAG**: Each analyzed prescription is automatically indexed so users can ask follow-up questions via chat
+- **End-to-end pipeline**: OCR > Extraction > Enrichment > Database Matching > RAG Indexing > Response
 
 ### RAG Document Q&A
 
@@ -22,20 +24,19 @@
 - **Multiple vector databases**: PostgreSQL with pgvector or Qdrant
 - **Semantic search**: Natural language queries across indexed documents
 
-### Security and Auth
+### Security & Auth
 
 - **JWT authentication**: Secure login/register with token-based access control
 - **Email verification**: Brevo (Sendinblue) integration for account verification
 - **Prompt injection guard**: Detects and blocks injection attempts in user queries
 - **Content filtering**: Output leakage prevention for sensitive data
-- **Rate limiting**: Per-IP rate limiting via SlowAPI
+- **Rate limiting**: Per-user rate limiting via SlowAPI (falls back to per-IP)
+- **Daily usage quotas**: Configurable per-user daily limits for queries, uploads, and prescriptions
 
-### Monitoring and Observability
+### Monitoring & Observability
 
 - **Prometheus metrics**: Custom application metrics with auto-instrumented endpoints
-- **Grafana dashboards**: Pre-configured visualization for system health
-- **Node Exporter**: Hardware and OS metrics from the host machine
-- **PostgreSQL Exporter**: Database-level performance metrics
+- **Health endpoint**: `GET /api/health` for uptime monitoring
 
 ---
 
@@ -44,7 +45,7 @@
 ```mermaid
 flowchart TB
     subgraph Frontend["Frontend Layer"]
-        React["React 18 SPA<br/>TypeScript + Tailwind"]
+        React["React 19 SPA<br/>TypeScript + Tailwind CSS 4"]
     end
 
     subgraph Proxy["Reverse Proxy"]
@@ -53,15 +54,17 @@ flowchart TB
 
     subgraph Backend["Backend -- FastAPI"]
         Auth["Auth Routes<br/>JWT + Email Verify"]
-        DataRoutes["Data Routes<br/>Upload / Process"]
+        DataRoutes["Data Routes<br/>Upload / Process / Delete"]
         NLPRoutes["NLP Routes<br/>Index / Search / Answer"]
-        PrescriptionRoutes["Prescription Routes<br/>OCR + Medicine Matching"]
+        PrescriptionRoutes["Prescription Routes<br/>Analyze / Stream / Chat"]
     end
 
     subgraph Controllers["Business Logic"]
         NLPCtrl["NLP Controller<br/>RAG Pipeline"]
         PrescCtrl["Prescription Controller<br/>OCR Pipeline + SSE"]
         ProcessCtrl["Process Controller<br/>Chunking Engine"]
+        SecurityCtrl["Security Controller<br/>Auth + Rate Limits + Quotas"]
+        UtilsCtrl["Utils Controller<br/>Prompt Guard + Content Filter"]
     end
 
     subgraph Data["Data Layer"]
@@ -76,13 +79,9 @@ flowchart TB
         Brevo["Brevo<br/>Email Service"]
     end
 
-    subgraph Monitoring["Monitoring Stack"]
-        Prometheus[Prometheus]
-        Grafana[Grafana]
-    end
-
     React --> Nginx
     Nginx --> Backend
+    Auth --> SecurityCtrl
     Auth --> Brevo
     DataRoutes --> ProcessCtrl
     NLPRoutes --> NLPCtrl
@@ -92,8 +91,7 @@ flowchart TB
     PrescCtrl --> OCR
     PrescCtrl --> EDA
     ProcessCtrl --> Data
-    Backend --> Prometheus
-    Prometheus --> Grafana
+    SecurityCtrl --> Data
 ```
 
 ---
@@ -132,12 +130,14 @@ Open `.env` and configure your API keys and preferences:
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `GENRATION_BACKEND` | LLM provider | `OPENAI`, `GEMINI`, `COHERE`, `HUGGINGFACE`, `OLLAMA` |
+| `GENRATION_BACKEND` | LLM provider | `OPENAI`, `GEMINI`, `COHERE`, `HUGGINGFACE` |
 | `EMBEDDING_BACKEND` | Embedding provider | `GEMINI`, `HUGGINGFACE`, `OPENAI` |
 | `OCR_BACKEND` | Prescription OCR provider | `GEMINI`, `OPENAI`, `EASYOCR`, `LLAMAPARSE` |
 | `VECTORDB_BACKEND` | Vector database | `PGVECTOR`, `QDRANT` |
 | `JWT_SECRET` | Token signing key | Generate with `python3 -c "import secrets; print(secrets.token_hex(32))"` |
 | `BREVO_API_KEY` | Email verification API key | Get from Brevo Dashboard |
+| `SENDER_EMAIL` | From address for verification emails | `noreply@yourdomain.com` |
+| `FRONTEND_URL` | Frontend URL for email links | `http://localhost:5778` |
 
 > **Important:** Change `JWT_SECRET` from the default value before deploying to production.
 
@@ -177,7 +177,7 @@ bash dev-stop.sh
 
 ### Option B: Full Docker Deployment (Production)
 
-Everything runs inside Docker containers, including Nginx reverse proxy and monitoring.
+Everything runs inside Docker containers with Nginx reverse proxy.
 
 ```bash
 cd Docker
@@ -185,20 +185,70 @@ cd Docker
 docker compose up -d --build
 ```
 
-| Service | URL |
-|---------|-----|
-| Application | `http://localhost` (via Nginx) |
-| API | `http://localhost:8000` |
-| Grafana | `http://localhost:3000` |
-| Prometheus | `http://localhost:9090` |
+| Service | Port | URL |
+|---------|------|-----|
+| Application (via Nginx) | 8899 | `http://localhost:8899` |
+| FastAPI (direct) | 8009 | `http://localhost:8009` |
+| Frontend (direct) | 5174 | `http://localhost:5174` |
+| PostgreSQL | 5436 | `localhost:5436` |
+| Qdrant HTTP | 6337 | `http://localhost:6337/dashboard` |
+| Qdrant gRPC | 6338 | `localhost:6338` |
 
 See [Docker/README.md](Docker/README.md) for detailed configuration.
 
 ---
 
+## API Endpoints
+
+All `/api/v1/*` routes require JWT authentication unless noted.
+
+### Auth (public)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/auth/register` | Create account |
+| `POST` | `/api/v1/auth/login` | Get JWT token |
+| `GET` | `/api/v1/auth/verify?token=...` | Verify email address |
+| `POST` | `/api/v1/auth/resend-verification` | Resend verification email |
+
+### Prescription (authenticated)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/prescription/analyze` | Analyze prescription (JSON response) |
+| `POST` | `/api/v1/prescription/analyze-stream` | Analyze prescription (SSE streaming) |
+| `POST` | `/api/v1/prescription/chat` | RAG Q&A scoped to a prescription |
+
+### Data (authenticated)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/data/upload/{project_id}` | Upload PDF, TXT, MD, JSON, CSV, or DOCX |
+| `POST` | `/api/v1/data/process/{project_id}` | Split into configurable chunks |
+| `DELETE` | `/api/v1/data/asset/{project_id}/{file_id}` | Delete a single asset and its chunks/vectors |
+| `DELETE` | `/api/v1/data/project/{project_id}/assets` | Delete all assets from a project |
+
+### NLP (authenticated)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/nlp/index/push/{project_id}` | Embed and store in vector database |
+| `GET` | `/api/v1/nlp/index/info/{project_id}` | Get index statistics |
+| `POST` | `/api/v1/nlp/index/search/{project_id}` | Semantic similarity search |
+| `POST` | `/api/v1/nlp/index/answer/{project_id}` | RAG-powered Q&A with context |
+
+### System
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/health` | No | Health check |
+| `GET` | `/api/v1/quota/status` | Yes | Current daily usage vs. limits |
+
+---
+
 ## System Workflow
 
-### 1. User Registration and Login
+### 1. User Registration & Login
 
 ```
 Register -> Email Verification (Brevo) -> Login -> JWT Token -> Access Protected Routes
@@ -207,16 +257,18 @@ Register -> Email Verification (Brevo) -> Login -> JWT Token -> Access Protected
 ### 2. Prescription Analysis Pipeline
 
 ```
-Upload Image -> OCR (Vision AI) -> Extract Medicines -> Match EDA Database -> Return Alternatives
+Upload Image -> Preprocess (OpenCV) -> OCR (Vision AI) -> Extract Medicines ->
+Match EDA Database -> Index into RAG -> Return Alternatives + project_id
 ```
 
 Each step streams real-time progress via SSE:
 
 | Step | Description |
 |------|-------------|
-| OCR | Extracts raw text from the prescription image using the configured vision provider |
-| Extraction | Identifies medicine names, dosages, and instructions from the raw OCR text |
+| OCR | Preprocesses image and extracts raw text using the configured vision provider |
+| Extraction | LLM identifies medicine names, dosages, and forms (with algorithmic fallback) |
 | Enrichment | Cross-references extracted medicines with the EDA database (~40,000+ products) |
+| Indexing | Auto-indexes results into a new RAG project for follow-up chat |
 | Response | Returns structured results with real alternatives and pricing |
 
 ### 3. RAG Document Pipeline
@@ -224,14 +276,6 @@ Each step streams real-time progress via SSE:
 ```
 Upload Document -> Process (Chunk) -> Generate Embeddings -> Index in Vector DB -> Query
 ```
-
-| Step | Endpoint | Description |
-|------|----------|-------------|
-| Upload | `POST /api/v1/data/upload/{project_id}` | Upload PDF, TXT, MD, JSON, CSV, or DOCX |
-| Process | `POST /api/v1/data/process/{project_id}` | Split into configurable chunks |
-| Index | `POST /api/v1/nlp/index/push/{project_id}` | Embed and store in vector database |
-| Search | `POST /api/v1/nlp/index/search/{project_id}` | Semantic similarity search |
-| Answer | `POST /api/v1/nlp/index/answer/{project_id}` | RAG-powered Q&A with context |
 
 ### 4. Medicine Database Update
 
@@ -250,60 +294,68 @@ uv run python3 SRC/scripts/scrape_eda.py
 
 ```
 rxtract/
-├── SRC/                          # Backend -- FastAPI Application
-│   ├── main.py                   # App entry point, middleware, router setup
-│   ├── Routes/                   # API endpoint definitions
-│   │   ├── Auth.py               # Register, login, email verification
-│   │   ├── Data.py               # File upload, processing, asset management
-│   │   ├── NLP.py                # Vector indexing, search, RAG Q&A
-│   │   └── Prescription.py       # OCR analysis with SSE streaming
-│   ├── Controllers/              # Business logic layer
-│   │   ├── NLPController.py      # RAG pipeline + hybrid search
+├── SRC/                            # Backend -- FastAPI Application
+│   ├── main.py                     # App entry point, middleware, router setup
+│   ├── Routes/                     # API endpoint definitions
+│   │   ├── Auth.py                 # Register, login, email verification, resend
+│   │   ├── Data.py                 # File upload, processing, asset deletion
+│   │   ├── NLP.py                  # Vector indexing, search, RAG Q&A
+│   │   ├── Prescription.py         # OCR analysis (JSON + SSE), prescription chat
+│   │   └── Schemes/               # Pydantic request/response schemas
+│   ├── Controllers/                # Business logic layer
+│   │   ├── NLPController.py        # RAG pipeline + hybrid search
 │   │   ├── PrescriptionController.py  # OCR pipeline + medicine matching
-│   │   └── ProcessController.py  # Document chunking engine
-│   ├── Stores/                   # External service integrations
-│   │   ├── LLM/                  # LLM providers (OpenAI, Gemini, Cohere, HuggingFace)
-│   │   ├── VectorDB/             # Vector DB providers (pgvector, Qdrant)
-│   │   └── Sparse/               # BM25 sparse retrieval
-│   ├── Utils/                    # Utilities
-│   │   ├── security.py           # JWT auth + password hashing
-│   │   ├── PromptGuard.py        # Prompt injection detection
-│   │   ├── ContentFilter.py      # Output leakage prevention
-│   │   ├── MedicineMatcher.py    # Fuzzy medicine matching against EDA DB
-│   │   ├── email_service.py      # Brevo email verification
-│   │   └── metrics.py            # Prometheus metrics setup
-│   ├── Models/                   # SQLAlchemy models + Alembic migrations
-│   ├── scripts/                  # Utility scripts
-│   │   ├── scrape_eda.py         # EDA medicine database scraper
-│   │   └── process_embeddings.py # Batch embedding processor
-│   └── .env.example              # Environment template
+│   │   ├── ProcessController.py    # Document chunking engine
+│   │   ├── SecurityController.py   # JWT auth, rate limiting, quotas, email
+│   │   ├── UtilsController.py      # Prompt guard, content filter, language detect
+│   │   ├── DataController.py       # Data/asset management logic
+│   │   ├── BaseController.py       # Shared controller utilities
+│   │   └── ProjectController.py    # Project management logic
+│   ├── Stores/                     # External service integrations
+│   │   ├── LLM/                    # LLM providers (OpenAI, Gemini, Cohere, HuggingFace)
+│   │   ├── OCR/                    # OCR providers (Gemini Vision, OpenAI Vision, EasyOCR, LlamaParse)
+│   │   ├── VectorDB/              # Vector DB providers (pgvector, Qdrant)
+│   │   └── Sparse/                # BM25 sparse retrieval
+│   ├── Utils/                      # Utilities
+│   │   ├── MedicineMatcher.py      # Fuzzy medicine matching against EDA DB
+│   │   ├── NLPPreprocess.py        # Text preprocessing utilities
+│   │   ├── sse_helpers.py          # SSE event formatting helpers
+│   │   └── metrics.py             # Prometheus metrics setup
+│   ├── Models/                     # SQLAlchemy models + Alembic migrations
+│   ├── Helpers/                    # Configuration
+│   ├── scripts/                    # Utility scripts
+│   │   ├── scrape_eda.py           # EDA medicine database scraper
+│   │   └── process_embeddings.py   # Batch embedding processor
+│   └── .env.example                # Environment template
 │
-├── frontend/                     # Frontend -- React SPA
+├── frontend/                       # Frontend -- React 19 SPA
 │   ├── src/
-│   │   ├── pages/                # Application pages
-│   │   │   ├── PrescriptionPage  # OCR analysis with progress streaming
-│   │   │   ├── ChatPage          # RAG Q&A interface
-│   │   │   ├── SearchPage        # Semantic search
-│   │   │   ├── UploadPage        # Document upload & processing
-│   │   │   ├── LoginPage         # Authentication
-│   │   │   ├── RegisterPage      # User registration
-│   │   │   └── VerifyEmailPage   # Email verification
-│   │   ├── components/           # Reusable UI components
-│   │   ├── stores/               # Zustand state (auth, settings)
-│   │   └── api/                  # API client layer
-│   └── index.html                # App shell
+│   │   ├── pages/                  # Application pages
+│   │   │   ├── PrescriptionPage    # OCR analysis with progress streaming
+│   │   │   ├── ChatPage            # RAG Q&A interface
+│   │   │   ├── SearchPage          # Semantic search
+│   │   │   ├── LoginPage           # Authentication
+│   │   │   ├── RegisterPage        # User registration
+│   │   │   └── VerifyEmailPage     # Email verification
+│   │   ├── components/             # Reusable UI components
+│   │   │   ├── ui/                 # Primitives (Button, Logo, QuotaPanel, ToastContainer)
+│   │   │   └── layout/            # App layout (Sidebar, MainLayout)
+│   │   ├── stores/                 # Zustand state (auth, settings, quota, toast)
+│   │   ├── api/                    # API client layer (Axios + type definitions)
+│   │   └── utils/                  # Shared utility functions
+│   └── index.html                  # App shell
 │
-├── Docker/                       # Docker deployment
-│   ├── docker-compose.yml        # Full production stack
-│   ├── docker-compose.dev.yml    # Dev-only (databases)
-│   ├── Nginx/                    # Reverse proxy config
-│   ├── Prometheus/               # Metrics scraping config
-│   └── env/                      # Container environment files
+├── Docker/                         # Docker deployment
+│   ├── docker-compose.yml          # Full production stack
+│   ├── docker-compose.dev.yml      # Dev-only (databases)
+│   ├── Nginx/                      # Reverse proxy config
+│   ├── Prometheus/                 # Metrics scraping config
+│   └── env/                        # Container environment files
 │
-├── dev.sh                        # One-command dev environment launcher
-├── dev-stop.sh                   # Graceful shutdown script
-├── API.md                        # Complete API reference
-└── project_workflow.md           # System workflow diagrams
+├── dev.sh                          # One-command dev environment launcher
+├── dev-stop.sh                     # Graceful shutdown script
+├── API.md                          # Complete API reference
+└── project_workflow.md             # System workflow diagrams
 ```
 
 ---
@@ -327,14 +379,33 @@ rxtract/
 | Google Gemini Vision | `GEMINI` | `GEMINI_API_KEY` | Handwritten prescriptions |
 | OpenAI Vision | `OPENAI` | `OPENAI_API_KEY` | General document OCR |
 | EasyOCR | `EASYOCR` | Nothing (local) | Offline/privacy-first |
-| LlamaParse | `LLAMAPARSE` | API key | Structured documents |
+| LlamaParse | `LLAMAPARSE` | `LLAMA_CLOUD_API_KEY` | Structured documents |
 
 ### Vector Database Options
 
-| Database | Backend Value | Default Port | Notes |
-|----------|---------------|--------------|-------|
-| PostgreSQL + pgvector | `PGVECTOR` | 5433 | Recommended, uses existing PostgreSQL |
-| Qdrant | `QDRANT` | 6333 | High-performance, standalone vector DB |
+| Database | Backend Value | Dev Port | Prod Port | Notes |
+|----------|---------------|----------|-----------|-------|
+| PostgreSQL + pgvector | `PGVECTOR` | 5433 | 5436 | Recommended, uses existing PostgreSQL |
+| Qdrant | `QDRANT` | 6333 | 6337 | High-performance, standalone vector DB |
+
+### Rate Limits & Quotas
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RATE_LIMIT_AUTH` | `10/minute` | Auth endpoints (per-IP) |
+| `RATE_LIMIT_UPLOAD` | `20/minute` | Upload/indexing endpoints |
+| `RATE_LIMIT_QUERY` | `30/minute` | Search/answer endpoints |
+| `RATE_LIMIT_PRESCRIPTION` | `10/minute` | Prescription analysis endpoints |
+| `QUOTA_DAILY_QUERIES` | `200` | Max queries per user per day |
+| `QUOTA_DAILY_PRESCRIPTIONS` | `30` | Max prescription analyses per user per day |
+| `QUOTA_DAILY_UPLOADS` | `50` | Max uploads per user per day |
+
+### Hybrid Search
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HYBRID_SEARCH_ENABLED` | `true` | Enable dense + BM25 hybrid search |
+| `HYBRID_SEARCH_ALPHA` | `0.6` | Blend ratio (0 = only BM25, 1 = only dense) |
 
 ---
 
@@ -342,13 +413,13 @@ rxtract/
 
 Turn any computer into a professional RxTract server using Cloudflare Tunnel.
 
-### Phase 1: Hardware and OS
+### Phase 1: Hardware & OS
 
 - **Hardware**: Any computer with 4GB+ RAM (old laptop recommended for built-in UPS)
 - **Connection**: Ethernet cable for stability
 - **OS**: Ubuntu Server 24.04 LTS (enable OpenSSH during installation)
 
-### Phase 2: Install and Deploy
+### Phase 2: Install & Deploy
 
 ```bash
 # SSH into your server
@@ -383,11 +454,11 @@ curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/relea
 sudo dpkg -i cloudflared.deb
 
 # Quick test (temporary URL)
-cloudflared tunnel --url http://localhost:80
+cloudflared tunnel --url http://localhost:8899
 
 # For permanent setup:
 # 1. Create Cloudflare account -> Zero Trust -> Tunnels
-# 2. Public Hostname: rxtract.yourdomain.com -> HTTP -> localhost:80
+# 2. Public Hostname: rxtract.yourdomain.com -> HTTP -> localhost:8899
 ```
 
 ### Troubleshooting

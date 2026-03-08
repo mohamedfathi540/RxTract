@@ -1,45 +1,42 @@
-<![CDATA[# RxTract — Docker Deployment
+# RxTract -- Docker Deployment
 
-> Complete containerized deployment with application server, databases, reverse proxy, and monitoring stack.
+> Complete containerized deployment with application server, databases, and reverse proxy.
 
 ---
 
-## 📋 Prerequisites
+## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) 20+
 - [Docker Compose](https://docs.docker.com/compose/install/) v2+
 
 ---
 
-## 🏗️ Architecture Overview
+## Architecture Overview
 
 ### Production Stack (`docker-compose.yml`)
 
-| Service | Image | Port | Purpose |
-|---------|-------|------|---------|
-| **fastapi** | Custom build | `8000` | FastAPI application server |
-| **nginx** | nginx:latest | `80` | Reverse proxy (routes to frontend + API) |
-| **pgvector** | pgvector/pgvector:0.8.0-pg17 | `5433` | PostgreSQL with vector similarity search |
-| **qdrant** | qdrant/qdrant:latest | `6333`, `6334` | Vector database (alternative to pgvector) |
-| **prometheus** | prom/prometheus | `9090` | Metrics collection |
-| **grafana** | grafana/grafana | `3000` | Monitoring dashboards |
-| **node_exporter** | prom/node-exporter | `9100` | Host hardware/OS metrics |
-| **postgres_exporter** | prometheuscommunity/postgres-exporter | `9187` | PostgreSQL performance metrics |
+| Service | Container Name | Image | Host Port | Internal Port | Purpose |
+|---------|---------------|-------|-----------|---------------|---------|
+| FastAPI | `rxtract_fastapi` | Custom build | 8009 | 8000 | FastAPI application server |
+| Frontend | `rxtract_frontend` | Custom build | 5174 | 80 | React 19 SPA (Nginx-served) |
+| Nginx | `rxtract_nginx` | nginx:latest | 8899 | 80 | Reverse proxy (routes to frontend + API) |
+| PostgreSQL | `rxtract_pgvector` | pgvector/pgvector:0.8.0-pg17 | 5436 | 5432 | PostgreSQL with vector similarity search |
+| Qdrant | `rxtract_qdrant` | qdrant/qdrant:latest | 6337 (HTTP), 6338 (gRPC) | 6333, 6334 | Vector database (alternative to pgvector) |
 
 ### Development Stack (`docker-compose.dev.yml`)
 
 For local development, only the databases run in Docker:
 
-| Service | Port | Notes |
-|---------|------|-------|
-| **pgvector** | `5433` | PostgreSQL 17 + pgvector 0.8.0 |
-| **qdrant** | `6333` | Vector database |
+| Service | Container Name | Host Port | Notes |
+|---------|---------------|-----------|-------|
+| pgvector | `pgvector` | 5433 | PostgreSQL 17 + pgvector 0.8.0 |
+| qdrant | `qdrant` | 6333, 6334 | Vector database |
 
 > Use `bash dev.sh` from the project root to start the dev stack automatically.
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Production Deployment
 
@@ -47,11 +44,11 @@ For local development, only the databases run in Docker:
 cd Docker
 
 # 1. Configure environment files
+#    Copy example files and edit:
+cp env/.env.app.example env/.env.app
 #    Edit files in Docker/env/ directory:
-#    - .env.app        → FastAPI settings (API keys, model config)
-#    - .env.postgres   → PostgreSQL credentials
-#    - .env.grafana    → Grafana admin credentials
-#    - .env.postgres-exporter → Exporter credentials (must match postgres)
+#    - .env.app        -> FastAPI settings (API keys, model config, auth, quotas)
+#    - .env.postgres   -> PostgreSQL credentials
 
 # 2. Start all services
 docker compose up -d --build
@@ -68,77 +65,77 @@ docker compose -f docker-compose.dev.yml up -d
 
 ---
 
-## 🔧 Configuration
+## Configuration
 
 ### Environment Files (`env/` directory)
 
 | File | Purpose | Key Variables |
 |------|---------|---------------|
-| `.env.app` | FastAPI application | `GENRATION_BACKEND`, `EMBEDDING_BACKEND`, `OCR_BACKEND`, API keys |
+| `.env.app` | FastAPI application | LLM/OCR backends, API keys, JWT, rate limits, quotas, Brevo email config |
 | `.env.postgres` | PostgreSQL | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` |
-| `.env.grafana` | Grafana | `GF_SECURITY_ADMIN_USER`, `GF_SECURITY_ADMIN_PASSWORD` |
-| `.env.postgres-exporter` | Exporter | Must match PostgreSQL credentials |
+
+### Application Environment (`.env.app`)
+
+Copy `.env.app.example` to `.env.app` and configure. Key sections:
+
+| Category | Variables |
+|----------|----------|
+| LLM | `GENRATION_BACKEND`, `EMBEDDING_BACKEND`, `GENRATION_MODEL_ID`, `EMBEDDING_MODEL_ID`, API keys |
+| OCR | `OCR_BACKEND`, `OCR_MODEL_ID`, `OCR_MAX_OUTPUT_TOKENS`, `OCR_TEMPERATURE` |
+| Vector DB | `VECTORDB_BACKEND` (`PGVECTOR` or `QDRANT`) |
+| Auth | `JWT_SECRET`, `JWT_ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES` |
+| Email | `BREVO_API_KEY`, `SENDER_EMAIL`, `FRONTEND_URL` |
+| Rate Limits | `RATE_LIMIT_AUTH`, `RATE_LIMIT_UPLOAD`, `RATE_LIMIT_QUERY`, `RATE_LIMIT_PRESCRIPTION` |
+| Quotas | `QUOTA_DAILY_QUERIES`, `QUOTA_DAILY_PRESCRIPTIONS`, `QUOTA_DAILY_UPLOADS` |
+| Hybrid Search | `HYBRID_SEARCH_ENABLED`, `HYBRID_SEARCH_ALPHA` |
+
+See `SRC/.env.example` for the full variable reference with descriptions.
 
 ### Nginx Configuration (`Nginx/Default.conf`)
 
 Routes incoming HTTP requests:
-- `/` → Frontend static files or FastAPI application
-- `/kfgndfkk4464_fubfd555` → FastAPI Prometheus metrics endpoint (obfuscated)
 
-### Prometheus Configuration (`Prometheus/prometheus.yml`)
-
-Scrape targets:
-| Job | Target | Metrics |
-|-----|--------|---------|
-| `fastapi` | `fastapi:8000/kfgndfkk4464_fubfd555` | Application metrics |
-| `postgres` | `postgres_exporter:9187` | Database metrics |
-| `node_exporter` | `node_exporter:9100` | System metrics |
-| `qdrant` | `qdrant:6333/metrics` | Vector DB metrics |
-| `prometheus` | `localhost:9090` | Self-monitoring |
-
-> [!IMPORTANT]
-> **Case Sensitivity**: The file is named `Prometheus.yml` but referenced as `prometheus.yml` in docker-compose. On Linux, rename to lowercase or update the volume mount path.
+- `/api/v1/*`, `/docs`, `/openapi.json` -> FastAPI (`rxtract_fastapi:8000`)
+- `/` (everything else) -> Frontend (`rxtract_frontend:80`)
+- `/kfgndfkk4464_fubfd555` -> FastAPI Prometheus metrics endpoint (obfuscated path)
 
 ---
 
-## 🗃️ Data Persistence
+## Data Persistence
 
 All data is stored in named Docker volumes:
 
 | Volume | Service | Contains |
 |--------|---------|----------|
-| `pgvector` | PostgreSQL | Database files, vector indexes |
-| `qdrant_data` | Qdrant | Vector collections |
-| `prometheus_data` | Prometheus | Time-series metrics |
-| `grafana_data` | Grafana | Dashboards, data sources |
+| `rxtract_fastapi_data` | FastAPI | Uploaded assets (mounted at `/app/Assets`) |
+| `rxtract_pgvector_data` | PostgreSQL | Database files, vector indexes |
+| `rxtract_qdrant_data` | Qdrant | Vector collections |
 
 ### Backup & Restore
 
 ```bash
 # Backup PostgreSQL volume
 docker run --rm \
-  -v docker_pgvector:/volume \
+  -v rxtract_pgvector_data:/volume \
   -v $(pwd):/backup \
   alpine tar cvf /backup/pgvector_backup.tar /volume
 
-# Restore PostgreSQL volume (⚠️ overwrites existing data)
+# Restore PostgreSQL volume (overwrites existing data)
 docker run --rm \
-  -v docker_pgvector:/volume \
+  -v rxtract_pgvector_data:/volume \
   -v $(pwd):/backup \
   alpine sh -c "cd /volume && tar xvf /backup/pgvector_backup.tar --strip 1"
 
 # List all volumes
 docker volume ls
 
-# Remove unused volumes (⚠️ data loss)
+# Remove unused volumes (data loss warning)
 docker volume prune
 ```
 
-> **Note:** Docker Compose prefixes volume names with the directory name (e.g., `docker_pgvector`). Run `docker volume ls` to confirm exact names.
-
 ---
 
-## 🐳 Container Entrypoints
+## Container Entrypoints
 
 ### FastAPI (`minirag/entrypoint.sh`)
 
@@ -159,11 +156,11 @@ exec uvicorn main:app --host 0.0.0.0 --port 8000
 pg_isready -U postgres     # Checks if database accepts connections
 ```
 
-Configured with: interval=5s, timeout=5s, retries=10, start_period=30s
+Configured with: interval=5s, timeout=5s, retries=10, start_period=60s
 
 ---
 
-## 🛠️ Common Commands
+## Common Commands
 
 ### Service Management
 
@@ -175,10 +172,10 @@ docker compose up -d
 docker compose down
 
 # Restart specific service
-docker compose restart fastapi
+docker compose restart rxtract_fastapi
 
 # Rebuild after code changes
-docker compose up -d --build fastapi
+docker compose up -d --build rxtract_fastapi
 ```
 
 ### Debugging
@@ -188,27 +185,36 @@ docker compose up -d --build fastapi
 docker compose logs -f
 
 # Follow specific service logs
-docker compose logs -f fastapi
+docker compose logs -f rxtract_fastapi
 
 # Shell into application container
-docker exec -it fastapi /bin/bash
+docker exec -it rxtract_fastapi /bin/bash
 
 # Shell into PostgreSQL
-docker exec -it pgvector psql -U postgres
+docker exec -it rxtract_pgvector psql -U postgres
 
 # Run migrations manually
-docker exec -it fastapi bash -c "cd /app/Models/DB_Schemes/minirag && alembic upgrade head"
+docker exec -it rxtract_fastapi bash -c "cd /app/Models/DB_Schemes/minirag && alembic upgrade head"
 ```
 
 ---
 
-## 🌐 Access Points
+## Access Points
 
-| Service | URL | Credentials |
-|---------|-----|-------------|
-| **Application** | http://localhost | — |
-| **FastAPI Docs** | http://localhost:8000/docs | — |
-| **Grafana** | http://localhost:3000 | Set in `.env.grafana` |
-| **Prometheus** | http://localhost:9090 | — |
-| **Qdrant Dashboard** | http://localhost:6333/dashboard | — |
-]]>
+### Production (docker-compose.yml)
+
+| Service | URL |
+|---------|-----|
+| Application (via Nginx) | `http://localhost:8899` |
+| Frontend (direct) | `http://localhost:5174` |
+| FastAPI Docs | `http://localhost:8009/docs` |
+| Qdrant Dashboard | `http://localhost:6337/dashboard` |
+
+### Development (docker-compose.dev.yml)
+
+| Service | URL |
+|---------|-----|
+| PostgreSQL | `localhost:5433` |
+| Qdrant Dashboard | `http://localhost:6333/dashboard` |
+
+Backend and frontend run locally outside Docker in dev mode. See the [root README](../README.md) for the full dev setup.
