@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { PaperAirplaneIcon } from "@heroicons/react/24/outline";
 import ReactMarkdown from "react-markdown";
+import { MessageCircle, ClipboardList, Link as LinkIcon } from "lucide-react";
 import { useSettingsStore } from "../stores/settingsStore";
 import { chatAboutPrescription } from "../api/prescription";
 import { Button } from "../components/ui/Button";
@@ -76,8 +77,8 @@ export function ChatPage() {
     <div className="flex flex-col" style={{ height: "calc(100vh - 5rem)" }}>
       {/* Header */}
       <div className="shrink-0 mb-4">
-        <h2 className="text-2xl font-semibold text-text-primary tracking-tight">
-          💬 Prescription Chat
+        <h2 className="text-2xl font-semibold text-text-primary tracking-tight flex items-center gap-2">
+          <MessageCircle className="w-6 h-6 text-primary-400" /> Prescription Chat
         </h2>
         <p className="text-sm text-text-secondary mt-1">
           Ask questions about your prescription — find replacements, check
@@ -89,7 +90,7 @@ export function ChatPage() {
       {!projectId ? (
         <Card className="flex-1 flex items-center justify-center">
           <div className="text-center space-y-3 max-w-md">
-            <div className="text-5xl">📋</div>
+            <ClipboardList className="w-12 h-12 text-text-muted" />
             <p className="text-lg text-text-primary font-medium">
               No Prescription Analyzed Yet
             </p>
@@ -105,8 +106,8 @@ export function ChatPage() {
           {/* Prescription Context Banner */}
           {prescriptionResult && prescriptionResult.medicines.length > 0 && (
             <div className="mb-4 bg-primary-600/10 border border-primary-600/30 rounded-xl px-4 py-3">
-              <p className="text-sm text-primary-400 font-medium">
-                🔗 Chatting about {prescriptionResult.medicines.length} medicine
+              <p className="text-sm text-primary-400 font-medium flex items-center gap-1.5">
+                <LinkIcon className="w-4 h-4" /> Chatting about {prescriptionResult.medicines.length} medicine
                 {prescriptionResult.medicines.length > 1 ? "s" : ""}:{" "}
                 <span className="text-primary-300">
                   {prescriptionResult.medicines.map((m) => m.name).join(", ")}

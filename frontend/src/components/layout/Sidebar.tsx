@@ -3,10 +3,9 @@ import {
   ChatBubbleLeftRightIcon,
   MagnifyingGlassIcon,
   DocumentTextIcon,
-  Bars3Icon,
-  XMarkIcon,
   ArrowRightStartOnRectangleIcon,
 } from "@heroicons/react/24/outline";
+import { Menu, X } from "lucide-react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { Logo } from "../ui/Logo";
 import { useAuthStore } from "../../stores/authStore";
@@ -64,18 +63,16 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
 
   return (
     <>
-      {/* Mobile hamburger button */}
-      <button
-        onClick={onToggle}
-        className="fixed top-3 left-3 z-50 md:hidden p-2 rounded-lg bg-bg-secondary border border-border text-text-primary hover:bg-bg-hover transition-colors"
-        aria-label="Toggle menu"
-      >
-        {isOpen ? (
-          <XMarkIcon className="w-6 h-6" />
-        ) : (
-          <Bars3Icon className="w-6 h-6" />
-        )}
-      </button>
+      {/* Mobile hamburger button — only visible when sidebar is CLOSED */}
+      {!isOpen && (
+        <button
+          onClick={onToggle}
+          className="fixed top-3 left-3 z-50 md:hidden p-2 rounded-lg bg-bg-secondary border border-border text-text-primary hover:bg-bg-hover transition-colors"
+          aria-label="Open menu"
+        >
+          <Menu className="w-6 h-6" />
+        </button>
+      )}
 
       {/* Backdrop overlay (mobile only) */}
       {isOpen && (
@@ -99,7 +96,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
         <div className="p-5 border-b border-border">
           <div className="flex items-center gap-2.5">
             <Logo size={36} className="rounded-lg" />
-            <div>
+            <div className="flex-1 min-w-0">
               <h1 className="text-xl font-semibold tracking-tight text-white">
                 RxTract
               </h1>
@@ -107,6 +104,14 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
                 Prescription Analyzer
               </p>
             </div>
+            {/* Mobile close button — inside sidebar header */}
+            <button
+              onClick={onToggle}
+              className="md:hidden p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
+              aria-label="Close menu"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
         </div>
 

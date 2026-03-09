@@ -1,27 +1,13 @@
+import { Pill } from "lucide-react";
+
 export function Logo({ size = 64, className = "" }: { size?: number; className?: string }) {
+  const iconSize = Math.round(size * 0.55);
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 64 64"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
+    <div
+      className={`flex items-center justify-center bg-emerald-500 ${className}`}
+      style={{ width: size, height: size, borderRadius: size * 0.22 }}
     >
-      {/* Background circle */}
-      <rect width="64" height="64" rx="14" fill="#10B981" />
-      {/* Rx text */}
-      <text
-        x="32"
-        y="42"
-        textAnchor="middle"
-        fontFamily="system-ui, sans-serif"
-        fontWeight="bold"
-        fontSize="28"
-        fill="white"
-      >
-        Rx
-      </text>
-    </svg>
+      <Pill className="text-white" style={{ width: iconSize, height: iconSize }} />
+    </div>
   );
 }

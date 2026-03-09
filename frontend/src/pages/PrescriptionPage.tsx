@@ -4,6 +4,23 @@ import type { OcrProgressEvent } from "../api/prescription";
 import type { MedicineInfo } from "../api/types";
 import { Button } from "../components/ui/Button";
 import { useSettingsStore } from "../stores/settingsStore";
+import {
+    Upload,
+    Search,
+    Pill,
+    FlaskConical,
+    BookOpen,
+    CheckCircle2,
+    FileText,
+    ClipboardList,
+    ShoppingCart,
+    Hospital,
+    MessageCircle,
+    StickyNote,
+    AlertTriangle,
+    Info,
+    Images,
+} from "lucide-react";
 
 /** Convert a File to a data URL so it survives page switches */
 function fileToDataUrl(file: File): Promise<string> {
@@ -17,12 +34,12 @@ function fileToDataUrl(file: File): Promise<string> {
 
 /** Pipeline step definitions */
 const PIPELINE_STEPS = [
-    { key: "upload", label: "Upload", icon: "📤" },
-    { key: "ocr", label: "OCR Processing", icon: "🔍" },
-    { key: "extraction", label: "Medicine Extraction", icon: "💊" },
-    { key: "enrichment", label: "Ingredient Lookup", icon: "🧪" },
-    { key: "indexing", label: "Indexing", icon: "📚" },
-    { key: "complete", label: "Complete", icon: "✅" },
+    { key: "upload", label: "Upload", icon: Upload },
+    { key: "ocr", label: "OCR Processing", icon: Search },
+    { key: "extraction", label: "Medicine Extraction", icon: Pill },
+    { key: "enrichment", label: "Ingredient Lookup", icon: FlaskConical },
+    { key: "indexing", label: "Indexing", icon: BookOpen },
+    { key: "complete", label: "Complete", icon: CheckCircle2 },
 ];
 
 export function PrescriptionPage() {
@@ -150,8 +167,8 @@ export function PrescriptionPage() {
         <div className="space-y-6">
             {/* Header */}
             <div>
-                <h1 className="text-2xl font-bold text-text-primary">
-                    💊 Prescription Analyzer
+                <h1 className="text-2xl font-bold text-text-primary flex items-center gap-2">
+                    <Pill className="w-6 h-6 text-primary-400" /> Prescription Analyzer
                 </h1>
                 <p className="text-text-secondary mt-1">
                     Upload a prescription image to extract medicine names, active
@@ -194,8 +211,8 @@ export function PrescriptionPage() {
                             className="max-h-64 mx-auto rounded-lg shadow-lg"
                         />
                         <div className="flex items-center justify-center gap-3">
-                            <p className="text-sm text-text-secondary">
-                                📄 {file?.name ?? "Previous prescription"}{" "}
+                            <p className="text-sm text-text-secondary flex items-center gap-1">
+                                <FileText className="w-4 h-4 inline shrink-0" /> {file?.name ?? "Previous prescription"}{" "}
                                 {file && (
                                     <span className="text-text-muted">
                                         ({((file.size || 0) / 1024).toFixed(1)} KB)
@@ -215,7 +232,7 @@ export function PrescriptionPage() {
                     </div>
                 ) : (
                     <div className="space-y-3">
-                        <div className="text-5xl">📋</div>
+                        <ClipboardList className="w-12 h-12 text-text-muted" />
                         <p className="text-text-secondary font-medium">
                             Drop your prescription image here
                         </p>
@@ -237,7 +254,7 @@ export function PrescriptionPage() {
                     >
                         {isAnalyzing
                             ? "Analyzing..."
-                            : "🔍 Analyze Prescription"}
+                            : <><Search className="w-4 h-4 inline mr-1" /> Analyze Prescription</>}
                     </Button>
                     {!isAnalyzing && (
                         <Button onPress={handleReset} variant="ghost">
@@ -279,11 +296,11 @@ export function PrescriptionPage() {
                                     {/* Status icon */}
                                     <div className="w-6 h-6 flex items-center justify-center shrink-0">
                                         {state === "done" ? (
-                                            <span className="text-green-400 text-sm font-bold">✓</span>
+                                            <CheckCircle2 className="w-4 h-4 text-green-400" />
                                         ) : state === "active" ? (
                                             <div className="w-4 h-4 border-2 border-primary-400 border-t-transparent rounded-full animate-spin" />
                                         ) : (
-                                            <span className="text-text-muted text-sm">{step.icon}</span>
+                                            <step.icon className="w-4 h-4 text-text-muted" />
                                         )}
                                     </div>
                                     {/* Label */}
@@ -331,7 +348,8 @@ export function PrescriptionPage() {
                     <p className={`font-medium ${
                         error.startsWith('__RATE_LIMIT__') ? 'text-yellow-400' : 'text-red-400'
                     }`}>
-                        {error.startsWith('__RATE_LIMIT__') ? '⚠️ Quota Limit' : '⚠️ Error'}
+                        <AlertTriangle className="w-4 h-4 inline mr-1" />
+                        {error.startsWith('__RATE_LIMIT__') ? 'Quota Limit' : 'Error'}
                     </p>
                     <p className={`text-sm mt-1 ${
                         error.startsWith('__RATE_LIMIT__') ? 'text-yellow-300' : 'text-red-300'
@@ -345,8 +363,8 @@ export function PrescriptionPage() {
             {medicines.length > 0 && (
                 <div className="space-y-4">
                     <div className="flex items-center justify-between">
-                        <h2 className="text-lg font-semibold text-text-primary">
-                            🏥 Medicines Found ({medicines.length})
+                        <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2">
+                            <Hospital className="w-5 h-5 text-primary-400" /> Medicines Found ({medicines.length})
                         </h2>
                         <div className="flex items-center gap-2">
                             <span className="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-400">
@@ -415,7 +433,7 @@ export function PrescriptionPage() {
                                                 className="flex items-center gap-2 px-4 py-2.5 bg-green-600/20 hover:bg-green-600/30 text-green-400 rounded-lg border border-green-600/30 transition-all duration-200 hover:scale-105 text-sm font-medium"
                                                 onClick={(e) => e.stopPropagation()}
                                             >
-                                                🛒 View Product
+                                                <ShoppingCart className="w-4 h-4" /> View Product
                                             </a>
                                         )}
                                         {med.image_url && (
@@ -426,7 +444,7 @@ export function PrescriptionPage() {
                                                 className="flex items-center gap-2 px-4 py-2.5 bg-primary-600/20 hover:bg-primary-600/30 text-primary-400 rounded-lg border border-primary-600/30 transition-all duration-200 hover:scale-105 text-sm font-medium"
                                                 onClick={(e) => e.stopPropagation()}
                                             >
-                                                🔍 View Images
+                                                <Images className="w-4 h-4" /> View Images
                                             </a>
                                         )}
                                     </div>
@@ -438,7 +456,7 @@ export function PrescriptionPage() {
                     {/* Tip to use Chat */}
                     {prescriptionResult?.projectId && (
                         <div className="bg-primary-600/10 border border-primary-600/30 rounded-xl p-4">
-                            <p className="text-primary-400 font-medium">💬 Chat Available</p>
+                            <p className="text-primary-400 font-medium flex items-center gap-1.5"><MessageCircle className="w-4 h-4" /> Chat Available</p>
                             <p className="text-primary-300/80 text-sm mt-1">
                                 Go to the <strong>Chat</strong> page to ask questions about these
                                 medicines — find replacements, check interactions, and more.
@@ -451,7 +469,7 @@ export function PrescriptionPage() {
             {/* Signal when no medicines found */}
             {signal && medicines.length === 0 && !isAnalyzing && !error && (
                 <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
-                    <p className="text-yellow-400 font-medium">ℹ️ {signal}</p>
+                    <p className="text-yellow-400 font-medium flex items-center gap-1.5"><Info className="w-4 h-4" /> {signal}</p>
                     <p className="text-yellow-300/80 text-sm mt-1">
                         The OCR was performed but no medicine names could be extracted. Try
                         a clearer image.
@@ -466,8 +484,8 @@ export function PrescriptionPage() {
                         onClick={() => setShowOcr(!showOcr)}
                         className="w-full px-5 py-3 flex items-center justify-between hover:bg-bg-hover transition-colors"
                     >
-                        <span className="text-sm font-medium text-text-secondary">
-                            📝 Raw OCR Text
+                        <span className="text-sm font-medium text-text-secondary flex items-center gap-1.5">
+                            <StickyNote className="w-4 h-4" /> Raw OCR Text
                         </span>
                         <span className="text-text-muted text-xs">
                             {showOcr ? "▲ Hide" : "▼ Show"}
