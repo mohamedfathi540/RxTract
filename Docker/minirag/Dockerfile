@@ -13,6 +13,8 @@ RUN apt-get update && apt-get install -y \
     libxml2-dev \
     libxslt-dev \
     libffi-dev \
+    libgl1 \
+    libglib2.0-0 \
     curl \
     && rm -rf /var/lib/apt/lists/*
    

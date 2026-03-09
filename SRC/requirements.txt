@@ -42,6 +42,7 @@ httpx
 
 # Local OCR engines (no API key needed)
 easyocr
+opencv-python-headless
 
 # Web Scraping
 beautifulsoup4>=4.12.0
