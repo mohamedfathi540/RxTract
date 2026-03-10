@@ -2,7 +2,10 @@
 from prometheus_client import Counter, Histogram, generate_latest , CONTENT_TYPE_LATEST
 from fastapi import Request, Response,FastAPI
 from starlette.middleware.base import BaseHTTPMiddleware
+import logging
 import time
+
+logger = logging.getLogger("uvicorn.error")
 
 #Define metrics
 
@@ -26,7 +29,15 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
 
         #Record request start time
         request_start_time = time.time()
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            logger.error("Unhandled error during request %s %s: %s", request.method, request.url.path, exc)
+            response = Response(
+                content='{"detail":"Internal server error"}',
+                status_code=500,
+                media_type="application/json",
+            )
         end_point = request.url.path
         #Update metrics
         REQUEST_COUNT.labels(method= request.method, endpoint= end_point, status_code= response.status_code).inc()

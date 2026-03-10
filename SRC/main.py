@@ -1,8 +1,14 @@
+import logging
+
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import OperationalError, DBAPIError
 
 from Routes import Base
 from Routes import Data
@@ -14,10 +20,10 @@ from Stores.LLM.LLMProviderFactory import LLMProviderFactory
 from Stores.VectorDB.VectorDBProviderFactory import VectorDBProviderFactory
 from Stores.OCR.OCRProviderFactory import OCRProviderFactory
 from Stores.LLM.Templates.template_parser import template_parser as TemplateParser
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
 from Utils.metrics import setup_metrics
 from Controllers.SecurityController import SecurityController, limiter
+
+logger = logging.getLogger("uvicorn.error")
 
 # ── Create FastAPI instance ─────────────────────────────────────────
 app = FastAPI()
@@ -40,6 +46,17 @@ app.add_middleware(
 setup_metrics(app)
 
 
+# ── Global DB-error handler ─────────────────────────────────────────
+@app.exception_handler(OperationalError)
+@app.exception_handler(DBAPIError)
+async def db_exception_handler(request: Request, exc: Exception):
+    logger.error("Database connection error: %s", exc)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Database is temporarily unavailable. Please try again shortly."},
+    )
+
+
 # ── Startup event ───────────────────────────────────────────────────
 @app.on_event("startup")
 async def startup_span():
@@ -49,7 +66,14 @@ async def startup_span():
         f"postgresql+asyncpg://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}"
         f"@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_MAIN_DB}"
     )
-    app.db_engine = create_async_engine(postgres_connection, pool_pre_ping=True)
+    app.db_engine = create_async_engine(
+        postgres_connection,
+        pool_pre_ping=True,
+        pool_recycle=300,
+        pool_size=5,
+        max_overflow=10,
+        connect_args={"timeout": 10},
+    )
     app.db_client = sessionmaker(
         app.db_engine,
         class_=AsyncSession,
