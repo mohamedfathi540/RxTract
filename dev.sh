@@ -113,6 +113,21 @@ kill_previous() {
         fi
         rm -f "$FRONTEND_PID"
     fi
+    # Forcefully clear the required ports if they are still held (e.g. by an orphaned or root process)
+    for port in "$PORT_BACKEND" "$PORT_FRONTEND" "$PORT_NGINX"; do
+        if command -v lsof &>/dev/null; then
+            pids=$(lsof -t -i:"$port" 2>/dev/null || true)
+            # If standard lsof misses it, we might need sudo for root processes holding our ports
+            if [ -z "$pids" ]; then
+                pids=$(sudo -n lsof -t -i:"$port" 2>/dev/null || true)
+            fi
+            if [ -n "$pids" ]; then
+                warn "Port $port is still occupied by PID(s): $pids. Force killing..."
+                echo "$pids" | xargs -r kill -9 2>/dev/null || true
+                sudo -n kill -9 $pids 2>/dev/null || true
+            fi
+        fi
+    done
 
     if [ -f "$CLOUDFLARED_PID" ]; then
         local cpid
@@ -155,6 +170,19 @@ cleanup() {
         fi
         rm -f "$FRONTEND_PID"
     fi
+    # Force kill leftover ports to prevent orphaned background processes
+    for port in "$PORT_BACKEND" "$PORT_FRONTEND"; do
+        if command -v lsof &>/dev/null; then
+            pids=$(lsof -t -i:"$port" 2>/dev/null || true)
+            if [ -z "$pids" ]; then
+                pids=$(sudo -n lsof -t -i:"$port" 2>/dev/null || true)
+            fi
+            if [ -n "$pids" ]; then
+                echo "$pids" | xargs -r kill -9 2>/dev/null || true
+                sudo -n kill -9 $pids 2>/dev/null || true
+            fi
+        fi
+    done
 
     # Kill backend
     if [ -f "$BACKEND_PID" ]; then
