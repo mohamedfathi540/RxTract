@@ -4,7 +4,7 @@ FROM ghcr.io/astral-sh/uv:0.9.26-python3.11-trixie
 WORKDIR /app
 #Install Additional system dependences for lxml and other packages
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libavif-dev pkg-config \
     libjpeg-dev \
@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y \
     libgl1 \
     libglib2.0-0 \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
    
 COPY SRC/pyproject.toml .
 

@@ -9,6 +9,8 @@ services:
       - "8009:8000"
     volumes:
       - rxtract_fastapi_data:/app/Assets
+      # Forces downloaded AI models to save on the 2TB drive
+      - /srv/mergerfs/2TB/rxtract_hf_cache:/app/cache
     networks:
       - rxtract_backend
     restart: always
@@ -20,10 +22,17 @@ services:
     environment:
       - POSTGRES_HOST=rxtract_pgvector
       - POSTGRES_PORT=5432
+      - HF_HOME=/app/cache
     dns:
       - 8.8.8.8
       - 8.8.4.4
-
+    ulimits:
+      core: 0
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'    # Max 1 CPU core
+          memory: 1G     # Max 1GB RAM
 
   # Frontend Application
   rxtract_frontend:
@@ -58,7 +67,8 @@ services:
     ports:
       - "5436:5432"
     volumes:
-      - "rxtract_pgvector_data:/var/lib/postgresql/data"
+      # Moved from Docker volume to the 2TB drive
+      - /srv/mergerfs/2TB/rxtract_db:/var/lib/postgresql/data
     env_file:
       - ./env/.env.postgres
     networks:
@@ -70,6 +80,13 @@ services:
       timeout: 5s
       retries: 10
       start_period: 60s
+    ulimits:
+      core: 0
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'    # Max half a CPU core
+          memory: 512M   # Max 512MB RAM
 
   # Qdrant (Vector DB)
   rxtract_qdrant:
@@ -79,10 +96,18 @@ services:
       - "6337:6333"
       - "6338:6334"
     volumes:
-      - "rxtract_qdrant_data:/qdrant/storage"
+      # Moved from Docker volume to the 2TB drive
+      - /srv/mergerfs/2TB/rxtract_qdrant:/qdrant/storage
     networks:
       - rxtract_backend
     restart: always
+    ulimits:
+      core: 0
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'    # Max half a CPU core
+          memory: 512M   # Max 512MB RAM
 
 networks:
   rxtract_backend:
@@ -90,5 +115,4 @@ networks:
 
 volumes:
   rxtract_fastapi_data:
-  rxtract_pgvector_data:
-  rxtract_qdrant_data:
+  # rxtract_pgvector_data and rxtract_qdrant_data removed because they are now direct paths on the 2TB drive

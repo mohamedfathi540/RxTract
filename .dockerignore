@@ -1,0 +1,36 @@
+# Git
+.git
+.gitignore
+
+# Frontend (built separately)
+frontend/node_modules
+frontend/dist
+frontend/.dockerignore
+
+# Docker config (not needed in build context beyond Dockerfile)
+Docker/env
+Docker/Nginx
+Docker/Prometheus
+Docker/README.md
+
+# IDE / editor
+.vscode
+.idea
+*.swp
+*.swo
+
+# Python caches
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Misc
+*.md
+!SRC/**/*.md
+LICENSE
+LICENCE
+dev.sh
+dev-stop.sh
