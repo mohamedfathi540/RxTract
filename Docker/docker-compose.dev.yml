@@ -20,6 +20,11 @@ services:
       start_period: 30s
     ulimits:
       core: 0
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'    # Max half a CPU core
+          memory: 512M   # Max 512MB RAM
 
   # Qdrant (Vector DB) — infrastructure only for dev
   qdrant:
@@ -35,6 +40,11 @@ services:
     restart: unless-stopped
     ulimits:
       core: 0
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'    # Max half a CPU core
+          memory: 512M   # Max 512MB RAM
 
   # Nginx reverse proxy for hybrid dev (routes to local backend/frontend)
   rxtract_nginx_dev:
@@ -49,6 +59,13 @@ services:
     networks:
       - backend
     restart: unless-stopped
+    ulimits:
+      core: 0
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'    # Max half a CPU core
+          memory: 512M   # Max 512MB RAM
 
 networks:
   backend:
