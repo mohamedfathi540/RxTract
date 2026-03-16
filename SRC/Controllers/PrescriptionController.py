@@ -6,7 +6,6 @@ Supports multiple OCR backends configured via OCR_BACKEND in .env:
   - LLAMAPARSE: Cloud-based OCR (requires LLAMA_CLOUD_API_KEY)
   - GEMINI: Google Gemini Vision AI (requires GEMINI_API_KEY)
   - OPENAI: OpenAI Vision (requires OPENAI_API_KEY)
-  - EASYOCR: Local OCR via EasyOCR (no API key required)
 
 All backends go through a unified pipeline:
   1. Preprocess the image (denoise, deskew)

@@ -24,7 +24,7 @@ class OCRInterface(ABC):
         """
         Extract text from an image.
 
-        For text-based providers (LlamaParse, EasyOCR): returns raw OCR text.
+        For text-based providers (LlamaParse): returns raw OCR text.
         For vision providers (Gemini, OpenAI): returns the model response
         (typically structured JSON when given an extraction prompt).
         """

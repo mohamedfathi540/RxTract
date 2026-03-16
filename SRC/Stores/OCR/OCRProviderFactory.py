@@ -1,5 +1,5 @@
 from .OCREnums import OCREnums
-from .Providers import LlamaParseProvider, EasyOCRProvider, GeminiOCRProvider, OpenAIOCRProvider
+from .Providers import LlamaParseProvider, GeminiOCRProvider, OpenAIOCRProvider
 
 
 class OCRProviderFactory:
@@ -14,8 +14,6 @@ class OCRProviderFactory:
                 api_key=getattr(self.config, "LLAMA_CLOUD_API_KEY", None),
             )
 
-        if provider == OCREnums.EASYOCR.value:
-            return EasyOCRProvider()
 
         if provider == OCREnums.GEMINI.value:
             return GeminiOCRProvider(

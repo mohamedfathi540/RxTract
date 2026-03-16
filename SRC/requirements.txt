@@ -39,7 +39,6 @@ duckduckgo-search
 httpx
 
 # Local OCR engines (no API key needed)
-easyocr
 opencv-python-headless
 
 # Web Scraping
