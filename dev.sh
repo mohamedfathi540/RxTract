@@ -284,14 +284,16 @@ export POSTGRES_HOST="${POSTGRES_HOST:-localhost}"
 export POSTGRES_PORT="${POSTGRES_PORT:-$PORT_POSTGRES}"
 
 # Activate venv or use uv
-if command -v uv &>/dev/null; then
-    nohup uv run uvicorn main:app --host 0.0.0.0 --port "$PORT_BACKEND" --reload \
+if [ -x ".venv/bin/python" ]; then
+    # Fast path: use existing virtualenv directly to avoid uv sync checks on every run.
+    nohup .venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port "$PORT_BACKEND" --reload \
         > "$LOG_DIR/backend.log" 2>&1 &
+elif command -v uv &>/dev/null; then
+    info "No local .venv found. Syncing backend dependencies with uv..."
+    uv sync --no-dev > "$LOG_DIR/backend.log" 2>&1
+    nohup uv run --no-sync uvicorn main:app --host 0.0.0.0 --port "$PORT_BACKEND" --reload \
+        >> "$LOG_DIR/backend.log" 2>&1 &
 else
-    # Fallback: use the local venv
-    if [ -d ".venv" ]; then
-        source .venv/bin/activate
-    fi
     nohup python -m uvicorn main:app --host 0.0.0.0 --port "$PORT_BACKEND" --reload \
         > "$LOG_DIR/backend.log" 2>&1 &
 fi
@@ -335,10 +337,10 @@ done
 if command -v cloudflared &>/dev/null; then
     if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
         step "Starting Cloudflare tunnel..."
-        nohup cloudflared tunnel run --token "$CLOUDFLARE_TUNNEL_TOKEN" \
-            > "$LOG_DIR/cloudflared.log" 2>&1 &
-        echo $! > "$CLOUDFLARED_PID"
-        success "Cloudflare tunnel starting (PID: $(cat "$CLOUDFLARED_PID"))"
+        nohup cloudflared tunnel run --token "$CLOUDFLARE_TUNNEL_TOKEN" > "$LOG_DIR/cloudflared.log" 2>&1 &
+        cloudflared_pid="$!"
+        echo "$cloudflared_pid" > "$CLOUDFLARED_PID"
+        success "Cloudflare tunnel starting (PID: $cloudflared_pid)"
     else
         info "Cloudflare tunnel skipped (set CLOUDFLARE_TUNNEL_TOKEN to enable)"
     fi
