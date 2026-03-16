@@ -25,12 +25,18 @@
 
 ### Development Stack (`docker-compose.dev.yml`)
 
-For local development, only the databases run in Docker:
+For local development, databases and a lightweight Nginx gateway run in Docker:
 
 | Service | Container Name | Host Port | Notes |
 |---------|---------------|-----------|-------|
-| pgvector | `pgvector` | 5433 | PostgreSQL 17 + pgvector 0.8.0 |
-| qdrant | `qdrant` | 6333, 6334 | Vector database |
+| pgvector | `pgvector` | 5436 | PostgreSQL 17 + pgvector 0.8.0 |
+| qdrant | `qdrant` | 6337, 6338 | Vector database |
+| Nginx (hybrid proxy) | `rxtract_nginx_dev` | 8899 | Proxies to local frontend (`5777`) and local backend (`8000`) |
+
+Dev stack bind mounts:
+
+- PostgreSQL data -> `/srv/mergerfs/2TB/rxtract_db`
+- Qdrant storage -> `/srv/mergerfs/2TB/rxtract_qdrant`
 
 > Use `bash dev.sh` from the project root to start the dev stack automatically.
 
@@ -57,7 +63,7 @@ docker compose up -d --build
 docker compose ps
 ```
 
-### Development (Databases Only)
+### Development (Hybrid Infra)
 
 ```bash
 docker compose -f docker-compose.dev.yml up -d
@@ -214,7 +220,8 @@ docker exec -it rxtract_fastapi bash -c "cd /app/Models/DB_Schemes/minirag && al
 
 | Service | URL |
 |---------|-----|
-| PostgreSQL | `localhost:5433` |
-| Qdrant Dashboard | `http://localhost:6333/dashboard` |
+| Application (via Nginx) | `http://localhost:8899` |
+| PostgreSQL | `localhost:5436` |
+| Qdrant Dashboard | `http://localhost:6337/dashboard` |
 
 Backend and frontend run locally outside Docker in dev mode. See the [root README](../README.md) for the full dev setup.

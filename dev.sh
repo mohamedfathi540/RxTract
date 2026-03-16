@@ -24,12 +24,14 @@ PID_DIR="/tmp/rxtract"
 LOG_DIR="/tmp/rxtract/logs"
 BACKEND_PID="$PID_DIR/backend.pid"
 FRONTEND_PID="$PID_DIR/frontend.pid"
+CLOUDFLARED_PID="$PID_DIR/cloudflared.pid"
 
 # Ports
-PORT_POSTGRES=5433
-PORT_QDRANT=6333
+PORT_POSTGRES=5436
+PORT_QDRANT=6337
 PORT_BACKEND=8000
 PORT_FRONTEND=5777
+PORT_NGINX=8899
 
 # Guard against repeated cleanup
 CLEANING_UP=false
@@ -106,6 +108,17 @@ kill_previous() {
         rm -f "$FRONTEND_PID"
     fi
 
+    if [ -f "$CLOUDFLARED_PID" ]; then
+        local cpid
+        cpid=$(cat "$CLOUDFLARED_PID" 2>/dev/null || true)
+        if [ -n "$cpid" ] && kill -0 "$cpid" 2>/dev/null; then
+            kill "$cpid" 2>/dev/null || true
+            kill -- -"$cpid" 2>/dev/null || true
+            success "Killed previous cloudflared tunnel (PID: $cpid)"
+        fi
+        rm -f "$CLOUDFLARED_PID"
+    fi
+
     success "Clean slate ready"
 }
 
@@ -149,6 +162,18 @@ cleanup() {
         rm -f "$BACKEND_PID"
     fi
 
+    # Kill cloudflared tunnel
+    if [ -f "$CLOUDFLARED_PID" ]; then
+        local cpid
+        cpid=$(cat "$CLOUDFLARED_PID" 2>/dev/null || true)
+        if [ -n "$cpid" ] && kill -0 "$cpid" 2>/dev/null; then
+            kill "$cpid" 2>/dev/null || true
+            kill -- -"$cpid" 2>/dev/null || true
+            success "Cloudflare tunnel stopped"
+        fi
+        rm -f "$CLOUDFLARED_PID"
+    fi
+
     # Stop Docker infra (only if Docker is truly available)
     if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
         docker compose -f "$SCRIPT_DIR/Docker/docker-compose.dev.yml" down 2>/dev/null || true
@@ -172,12 +197,22 @@ banner
 # Create dirs
 mkdir -p "$PID_DIR" "$LOG_DIR"
 
+# Load Cloudflare token from SRC/.env if not provided in shell env.
+if [ -z "${CLOUDFLARE_TUNNEL_TOKEN:-}" ] && [ -f "$SCRIPT_DIR/SRC/.env" ]; then
+    token_line=$(grep -E '^[[:space:]]*CLOUDFLARE_TUNNEL_TOKEN[[:space:]]*=' "$SCRIPT_DIR/SRC/.env" | tail -1 || true)
+    if [ -n "$token_line" ]; then
+        CLOUDFLARE_TUNNEL_TOKEN=$(echo "$token_line" | sed -E 's/^[[:space:]]*CLOUDFLARE_TUNNEL_TOKEN[[:space:]]*=[[:space:]]*//; s/^"//; s/"$//')
+        export CLOUDFLARE_TUNNEL_TOKEN
+        info "Loaded Cloudflare tunnel token from SRC/.env"
+    fi
+fi
+
 # 0. Kill previous sessions
 kill_previous
 
 # 1. Docker infrastructure (if Docker is truly available)
 if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
-    step "Starting Docker infrastructure (pgvector + qdrant)..."
+    step "Starting Docker infrastructure (pgvector + qdrant + nginx proxy)..."
     docker compose -f "$SCRIPT_DIR/Docker/docker-compose.dev.yml" up -d 2>&1 | while read -r line; do
         info "$line"
     done
@@ -210,9 +245,21 @@ if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
             warn "Qdrant may not be ready yet — continuing anyway"
         fi
     done
+
+    # Check Nginx container state in hybrid mode
+    for i in $(seq 1 10); do
+        if docker inspect -f '{{.State.Running}}' rxtract_nginx_dev 2>/dev/null | grep -q true; then
+            success "Nginx proxy is running on port $PORT_NGINX"
+            break
+        fi
+        sleep 1
+        if [ "$i" -eq 10 ]; then
+            warn "Nginx proxy may not be running yet — check docker logs rxtract_nginx_dev"
+        fi
+    done
 else
     step "Docker not found — skipping infrastructure containers"
-    warn "pgvector and qdrant will not be started"
+    warn "pgvector, qdrant, and nginx proxy will not be started"
     warn "Make sure they are running elsewhere, or install Docker"
     info "Backend will try to connect to PostgreSQL at localhost:$PORT_POSTGRES"
 fi
@@ -220,6 +267,10 @@ fi
 # 2. Backend (FastAPI)
 step "Starting FastAPI backend on port $PORT_BACKEND..."
 cd "$SCRIPT_DIR/SRC"
+
+# Keep hybrid backend aligned with dev Docker infra ports.
+export POSTGRES_HOST="${POSTGRES_HOST:-localhost}"
+export POSTGRES_PORT="${POSTGRES_PORT:-$PORT_POSTGRES}"
 
 # Activate venv or use uv
 if command -v uv &>/dev/null; then
@@ -262,6 +313,21 @@ for i in $(seq 1 15); do
         warn "Backend not responding yet — check $LOG_DIR/backend.log"
     fi
 done
+
+# 4. Optional Cloudflare tunnel
+if command -v cloudflared &>/dev/null; then
+    if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
+        step "Starting Cloudflare tunnel..."
+        nohup cloudflared tunnel run --token "$CLOUDFLARE_TUNNEL_TOKEN" \
+            > "$LOG_DIR/cloudflared.log" 2>&1 &
+        echo $! > "$CLOUDFLARED_PID"
+        success "Cloudflare tunnel starting (PID: $(cat "$CLOUDFLARED_PID"))"
+    else
+        info "Cloudflare tunnel skipped (set CLOUDFLARE_TUNNEL_TOKEN to enable)"
+    fi
+else
+    info "cloudflared not installed — tunnel skipped"
+fi
 
 # 3. Frontend (Vite)
 step "Starting Vite frontend on port $PORT_FRONTEND..."
@@ -316,10 +382,14 @@ echo -e "${GREEN}${BOLD}  ╔═════════════════
 echo -e "${GREEN}${BOLD}  ║         🚀 RxTract is LIVE! 🚀                ║${NC}"
 echo -e "${GREEN}${BOLD}  ╠═══════════════════════════════════════════════╣${NC}"
 echo -e "${GREEN}${BOLD}  ║${NC}                                               ${GREEN}${BOLD}║${NC}"
+echo -e "${GREEN}${BOLD}  ║${NC}  ${CYAN}Nginx Gateway${NC} → ${WHITE}http://localhost:${PORT_NGINX}${NC}       ${GREEN}${BOLD}║${NC}"
 echo -e "${GREEN}${BOLD}  ║${NC}  ${CYAN}Frontend${NC}     → ${WHITE}http://localhost:${PORT_FRONTEND}${NC}       ${GREEN}${BOLD}║${NC}"
 echo -e "${GREEN}${BOLD}  ║${NC}  ${CYAN}Backend API${NC}  → ${WHITE}http://localhost:${PORT_BACKEND}/docs${NC}  ${GREEN}${BOLD}║${NC}"
 echo -e "${GREEN}${BOLD}  ║${NC}  ${CYAN}PostgreSQL${NC}   → ${WHITE}localhost:${PORT_POSTGRES}${NC}             ${GREEN}${BOLD}║${NC}"
 echo -e "${GREEN}${BOLD}  ║${NC}  ${CYAN}Qdrant${NC}       → ${WHITE}http://localhost:${PORT_QDRANT}${NC}       ${GREEN}${BOLD}║${NC}"
+if [ -f "$CLOUDFLARED_PID" ]; then
+echo -e "${GREEN}${BOLD}  ║${NC}  ${CYAN}Cloudflare${NC}   → ${WHITE}Tunnel enabled (see logs)${NC}   ${GREEN}${BOLD}║${NC}"
+fi
 echo -e "${GREEN}${BOLD}  ║${NC}                                               ${GREEN}${BOLD}║${NC}"
 echo -e "${GREEN}${BOLD}  ║${NC}                                               ${GREEN}${BOLD}║${NC}"
 echo -e "${GREEN}${BOLD}  ╠═══════════════════════════════════════════════╣${NC}"
@@ -338,6 +408,13 @@ echo -e "  3. Result saved to ${WHITE}SRC/Assets/Files/eda_medicines.csv${NC}"
 step "Tailing logs (backend + frontend)..."
 echo -e "  ${DIM}Backend log: $LOG_DIR/backend.log${NC}"
 echo -e "  ${DIM}Frontend log: $LOG_DIR/frontend.log${NC}"
+if [ -f "$CLOUDFLARED_PID" ]; then
+    echo -e "  ${DIM}Cloudflared log: $LOG_DIR/cloudflared.log${NC}"
+fi
 echo ""
 
-tail -f "$LOG_DIR/backend.log" "$LOG_DIR/frontend.log" 2>/dev/null || wait
+if [ -f "$CLOUDFLARED_PID" ]; then
+    tail -f "$LOG_DIR/backend.log" "$LOG_DIR/frontend.log" "$LOG_DIR/cloudflared.log" 2>/dev/null || wait
+else
+    tail -f "$LOG_DIR/backend.log" "$LOG_DIR/frontend.log" 2>/dev/null || wait
+fi

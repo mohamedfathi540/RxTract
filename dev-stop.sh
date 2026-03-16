@@ -74,7 +74,25 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────
-# 3. Stop Docker infrastructure
+# 3. Stop Cloudflare tunnel
+# ─────────────────────────────────────────────────────────
+step "Stopping Cloudflare tunnel..."
+if [ -f "$PID_DIR/cloudflared.pid" ]; then
+    cpid=$(cat "$PID_DIR/cloudflared.pid" 2>/dev/null || true)
+    if [ -n "$cpid" ] && kill -0 "$cpid" 2>/dev/null; then
+        kill "$cpid" 2>/dev/null || true
+        kill -- -"$cpid" 2>/dev/null || true
+        success "Cloudflare tunnel stopped (PID: $cpid)"
+    else
+        info "Cloudflare tunnel was not running"
+    fi
+    rm -f "$PID_DIR/cloudflared.pid"
+else
+    info "No cloudflared PID file found"
+fi
+
+# ─────────────────────────────────────────────────────────
+# 4. Stop Docker infrastructure
 # ─────────────────────────────────────────────────────────
 step "Stopping Docker infrastructure..."
 
@@ -99,7 +117,7 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────
-# 4. Cleanup
+# 5. Cleanup
 # ─────────────────────────────────────────────────────────
 step "Cleaning up..."
 rm -rf "$LOG_DIR" 2>/dev/null || true

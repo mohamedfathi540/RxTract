@@ -151,10 +151,20 @@ bash dev.sh
 This script will:
 
 1. Start **PostgreSQL (pgvector)** and **Qdrant** via Docker
-2. Wait for databases to become healthy
-3. Launch the **FastAPI backend** with hot-reload on port `8000`
-4. Launch the **Vite frontend** with HMR on port `5777`
-5. Tail all logs in your terminal
+2. Start **Nginx gateway** via Docker on port `8899` (hybrid reverse proxy)
+3. Wait for databases to become healthy
+4. Launch the **FastAPI backend** with hot-reload on port `8000`
+5. Launch the **Vite frontend** with HMR on port `5777`
+6. Tail all logs in your terminal
+
+Optional Cloudflare tunnel:
+
+```bash
+export CLOUDFLARE_TUNNEL_TOKEN="<your-tunnel-token>"
+bash dev.sh
+```
+
+When the token is set and `cloudflared` is installed, the tunnel starts automatically with the dev stack.
 
 **To stop everything:**
 
@@ -168,10 +178,11 @@ bash dev-stop.sh
 
 | Service | URL |
 |---------|-----|
+| Application (via Nginx) | `http://localhost:8899` |
 | Frontend | `http://localhost:5777` |
 | API Docs | `http://localhost:8000/docs` |
-| PostgreSQL | `localhost:5433` |
-| Qdrant Dashboard | `http://localhost:6333/dashboard` |
+| PostgreSQL | `localhost:5436` |
+| Qdrant Dashboard | `http://localhost:6337/dashboard` |
 
 ---
 
