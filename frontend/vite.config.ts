@@ -13,6 +13,7 @@ export default defineConfig({
     },
     server: {
         port: 5777,
+        allowedHosts: ['rxtract.mohamedfathi.me', 'fehres.mohamedfathi.me'],
         proxy: {
             '/api': {
                 target: 'http://localhost:8000',
