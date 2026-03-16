@@ -357,6 +357,16 @@ success "Backend starting (PID: $(cat "$BACKEND_PID"))"
 # Wait for backend — use short curl timeout to avoid hanging
 echo -ne "  ${DIM}Waiting for backend"
 for i in $(seq 1 120); do
+    # First check if the process died
+    bpid=$(cat "$BACKEND_PID" 2>/dev/null || true)
+    if [ -n "$bpid" ] && ! kill -0 "$bpid" 2>/dev/null; then
+        echo -e "${NC}"
+        fail "Backend process died! Check log:"
+        tail -5 "$LOG_DIR/backend.log" 2>/dev/null | while read -r line; do
+            info "$line"
+        done
+        break
+    fi
     # Check if "Application startup complete" appears in log
     if grep -q "Application startup complete" "$LOG_DIR/backend.log" 2>/dev/null; then
         echo -e "${NC}"
@@ -367,16 +377,6 @@ for i in $(seq 1 120); do
     if curl -sf --connect-timeout 2 "http://localhost:${PORT_BACKEND}/docs" >/dev/null 2>&1; then
         echo -e "${NC}"
         success "Backend is up! → http://localhost:${PORT_BACKEND}/docs"
-        break
-    fi
-    # Also check if the process died
-    bpid=$(cat "$BACKEND_PID" 2>/dev/null || true)
-    if [ -n "$bpid" ] && ! kill -0 "$bpid" 2>/dev/null; then
-        echo -e "${NC}"
-        fail "Backend process died! Check log:"
-        tail -5 "$LOG_DIR/backend.log" 2>/dev/null | while read -r line; do
-            info "$line"
-        done
         break
     fi
     echo -ne "."
@@ -425,6 +425,16 @@ success "Frontend starting (PID: $(cat "$FRONTEND_PID"))"
 # Wait for frontend — check log instead of curl
 echo -ne "  ${DIM}Waiting for frontend"
 for i in $(seq 1 60); do
+    # First check if the process died
+    fpid=$(cat "$FRONTEND_PID" 2>/dev/null || true)
+    if [ -n "$fpid" ] && ! kill -0 "$fpid" 2>/dev/null; then
+        echo -e "${NC}"
+        fail "Frontend process died! Check log:"
+        tail -5 "$LOG_DIR/frontend.log" 2>/dev/null | while read -r line; do
+            info "$line"
+        done
+        break
+    fi
     if grep -q "Local:" "$LOG_DIR/frontend.log" 2>/dev/null; then
         echo -e "${NC}"
         success "Frontend is up! → http://localhost:${PORT_FRONTEND}"
@@ -433,15 +443,6 @@ for i in $(seq 1 60); do
     if curl -sf --connect-timeout 2 "http://localhost:${PORT_FRONTEND}" >/dev/null 2>&1; then
         echo -e "${NC}"
         success "Frontend is up! → http://localhost:${PORT_FRONTEND}"
-        break
-    fi
-    fpid=$(cat "$FRONTEND_PID" 2>/dev/null || true)
-    if [ -n "$fpid" ] && ! kill -0 "$fpid" 2>/dev/null; then
-        echo -e "${NC}"
-        fail "Frontend process died! Check log:"
-        tail -5 "$LOG_DIR/frontend.log" 2>/dev/null | while read -r line; do
-            info "$line"
-        done
         break
     fi
     echo -ne "."
