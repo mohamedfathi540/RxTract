@@ -218,20 +218,31 @@ if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
     done
 
     # Wait for PostgreSQL to be healthy
+    pg_ready=false
     echo -ne "  ${DIM}Waiting for PostgreSQL to be ready"
-    for i in $(seq 1 30); do
+    for i in $(seq 1 60); do
         if docker exec pgvector pg_isready -U postgres &>/dev/null; then
             echo -e "${NC}"
             success "PostgreSQL (pgvector) is ready on port $PORT_POSTGRES"
+            pg_ready=true
             break
         fi
         echo -ne "."
         sleep 2
-        if [ "$i" -eq 30 ]; then
+        if [ "$i" -eq 60 ]; then
             echo -e "${NC}"
-            warn "PostgreSQL did not become ready — continuing anyway"
+            warn "PostgreSQL did not become ready"
         fi
     done
+
+    if [ "$pg_ready" != true ]; then
+        fail "PostgreSQL is unhealthy. Backend startup cancelled."
+        info "Recent pgvector logs:"
+        docker logs --tail 40 pgvector 2>&1 | while read -r line; do
+            info "$line"
+        done
+        exit 1
+    fi
 
     # Check Qdrant
     for i in $(seq 1 15); do
@@ -289,9 +300,15 @@ success "Backend starting (PID: $(cat "$BACKEND_PID"))"
 
 # Wait for backend — use short curl timeout to avoid hanging
 echo -ne "  ${DIM}Waiting for backend"
-for i in $(seq 1 15); do
+for i in $(seq 1 120); do
     # Check if "Application startup complete" appears in log
     if grep -q "Application startup complete" "$LOG_DIR/backend.log" 2>/dev/null; then
+        echo -e "${NC}"
+        success "Backend is up! → http://localhost:${PORT_BACKEND}/docs"
+        break
+    fi
+    # Also check if docs endpoint is reachable
+    if curl -sf --connect-timeout 2 "http://localhost:${PORT_BACKEND}/docs" >/dev/null 2>&1; then
         echo -e "${NC}"
         success "Backend is up! → http://localhost:${PORT_BACKEND}/docs"
         break
@@ -308,9 +325,9 @@ for i in $(seq 1 15); do
     fi
     echo -ne "."
     sleep 2
-    if [ "$i" -eq 15 ]; then
+    if [ "$i" -eq 120 ]; then
         echo -e "${NC}"
-        warn "Backend not responding yet — check $LOG_DIR/backend.log"
+        warn "Backend not responding yet (first run can take time) — check $LOG_DIR/backend.log"
     fi
 done
 
@@ -351,8 +368,13 @@ success "Frontend starting (PID: $(cat "$FRONTEND_PID"))"
 
 # Wait for frontend — check log instead of curl
 echo -ne "  ${DIM}Waiting for frontend"
-for i in $(seq 1 10); do
+for i in $(seq 1 60); do
     if grep -q "Local:" "$LOG_DIR/frontend.log" 2>/dev/null; then
+        echo -e "${NC}"
+        success "Frontend is up! → http://localhost:${PORT_FRONTEND}"
+        break
+    fi
+    if curl -sf --connect-timeout 2 "http://localhost:${PORT_FRONTEND}" >/dev/null 2>&1; then
         echo -e "${NC}"
         success "Frontend is up! → http://localhost:${PORT_FRONTEND}"
         break
@@ -368,7 +390,7 @@ for i in $(seq 1 10); do
     fi
     echo -ne "."
     sleep 2
-    if [ "$i" -eq 10 ]; then
+    if [ "$i" -eq 60 ]; then
         echo -e "${NC}"
         warn "Frontend not responding yet — check $LOG_DIR/frontend.log"
     fi

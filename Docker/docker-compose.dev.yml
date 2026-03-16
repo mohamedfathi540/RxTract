@@ -6,7 +6,7 @@ services:
     ports:
       - "5436:5432"
     volumes:
-      - /srv/mergerfs/2TB/rxtract_db:/var/lib/postgresql/data
+      - pgvector_dev_data:/var/lib/postgresql/data
     env_file:
       - ./env/.env.postgres
     networks:
@@ -53,3 +53,7 @@ services:
 networks:
   backend:
     driver: bridge
+
+volumes:
+  pgvector_dev_data:
+    driver: local
