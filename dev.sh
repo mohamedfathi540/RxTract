@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+
+# Re-exec under bash if invoked via sh.
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
+
 set -euo pipefail
 
 # ─────────────────────────────────────────────────────────
@@ -212,8 +218,9 @@ kill_previous
 
 # 1. Docker infrastructure (if Docker is truly available)
 if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
+    COMPOSE_FILE="$SCRIPT_DIR/Docker/docker-compose.dev.yml"
     step "Starting Docker infrastructure (pgvector + qdrant + nginx proxy)..."
-    docker compose -f "$SCRIPT_DIR/Docker/docker-compose.dev.yml" up -d 2>&1 | while read -r line; do
+    docker compose -f "$COMPOSE_FILE" up -d 2>&1 | while read -r line; do
         info "$line"
     done
 
@@ -221,7 +228,8 @@ if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
     pg_ready=false
     echo -ne "  ${DIM}Waiting for PostgreSQL to be ready"
     for i in $(seq 1 60); do
-        if docker exec pgvector pg_isready -U postgres &>/dev/null; then
+        pg_container_id=$(docker compose -f "$COMPOSE_FILE" ps -q pgvector 2>/dev/null || true)
+        if [ -n "$pg_container_id" ] && docker exec "$pg_container_id" pg_isready -U postgres &>/dev/null; then
             echo -e "${NC}"
             success "PostgreSQL (pgvector) is ready on port $PORT_POSTGRES"
             pg_ready=true
@@ -238,9 +246,17 @@ if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
     if [ "$pg_ready" != true ]; then
         fail "PostgreSQL is unhealthy. Backend startup cancelled."
         info "Recent pgvector logs:"
-        docker logs --tail 40 pgvector 2>&1 | while read -r line; do
-            info "$line"
-        done
+        pg_container_id=$(docker compose -f "$COMPOSE_FILE" ps -q pgvector 2>/dev/null || true)
+        if [ -n "$pg_container_id" ]; then
+            docker logs --tail 40 "$pg_container_id" 2>&1 | while read -r line; do
+                info "$line"
+            done
+        else
+            info "pgvector service container not found."
+            docker compose -f "$COMPOSE_FILE" ps 2>&1 | while read -r line; do
+                info "$line"
+            done
+        fi
         exit 1
     fi
 
@@ -259,13 +275,14 @@ if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
 
     # Check Nginx container state in hybrid mode
     for i in $(seq 1 10); do
-        if docker inspect -f '{{.State.Running}}' rxtract_nginx_dev 2>/dev/null | grep -q true; then
+        nginx_container_id=$(docker compose -f "$COMPOSE_FILE" ps -q rxtract_nginx_dev 2>/dev/null || true)
+        if [ -n "$nginx_container_id" ] && docker inspect -f '{{.State.Running}}' "$nginx_container_id" 2>/dev/null | grep -q true; then
             success "Nginx proxy is running on port $PORT_NGINX"
             break
         fi
         sleep 1
         if [ "$i" -eq 10 ]; then
-            warn "Nginx proxy may not be running yet — check docker logs rxtract_nginx_dev"
+            warn "Nginx proxy may not be running yet — check: docker compose -f $COMPOSE_FILE logs rxtract_nginx_dev"
         fi
     done
 else
@@ -278,6 +295,43 @@ fi
 # 2. Backend (FastAPI)
 step "Starting FastAPI backend on port $PORT_BACKEND..."
 cd "$SCRIPT_DIR/SRC"
+
+# Ensure backend env file exists for pydantic-settings.
+ENV_FILE="$SCRIPT_DIR/SRC/.env"
+if [ ! -f "$ENV_FILE" ]; then
+    if [ -f "$SCRIPT_DIR/SRC/.env.example" ]; then
+        cp "$SCRIPT_DIR/SRC/.env.example" "$ENV_FILE"
+        PG_ENV_FILE="$SCRIPT_DIR/Docker/env/.env.postgres"
+        if [ -f "$PG_ENV_FILE" ]; then
+            pg_user=$(grep -E '^POSTGRES_USER=' "$PG_ENV_FILE" | tail -1 | cut -d'=' -f2-)
+            pg_pass=$(grep -E '^POSTGRES_PASSWORD=' "$PG_ENV_FILE" | tail -1 | cut -d'=' -f2-)
+            pg_db=$(grep -E '^POSTGRES_DB=' "$PG_ENV_FILE" | tail -1 | cut -d'=' -f2-)
+
+            [ -n "$pg_user" ] && sed -i -E "s|^POSTGRES_USER\s*=.*$|POSTGRES_USER = \"$pg_user\"|" "$ENV_FILE"
+            [ -n "$pg_pass" ] && sed -i -E "s|^POSTGRES_PASSWORD\s*=.*$|POSTGRES_PASSWORD = \"$pg_pass\"|" "$ENV_FILE"
+            [ -n "$pg_db" ] && sed -i -E "s|^POSTGRES_MAIN_DB\s*=.*$|POSTGRES_MAIN_DB = \"$pg_db\"|" "$ENV_FILE"
+        fi
+        warn "SRC/.env was missing. Created from SRC/.env.example"
+        info "Update POSTGRES_PASSWORD/API keys in SRC/.env if needed."
+    else
+        fail "Missing SRC/.env and SRC/.env.example"
+        exit 1
+    fi
+fi
+
+# Fail fast with clear guidance when required keys are absent.
+missing_keys=()
+for key in APP_NAME APP_VERSION POSTGRES_USER POSTGRES_PASSWORD POSTGRES_MAIN_DB GENRATION_BACKEND EMBEDDING_BACKEND VECTORDB_BACKEND VECTORDB_PATH; do
+    if ! grep -Eq "^[[:space:]]*${key}[[:space:]]*=[[:space:]]*.+$" "$ENV_FILE"; then
+        missing_keys+=("$key")
+    fi
+done
+
+if [ ${#missing_keys[@]} -gt 0 ]; then
+    fail "SRC/.env is missing required keys: ${missing_keys[*]}"
+    info "Edit SRC/.env and set the missing values, then run ./dev.sh again."
+    exit 1
+fi
 
 # Keep hybrid backend aligned with dev Docker infra ports.
 export POSTGRES_HOST="${POSTGRES_HOST:-localhost}"
