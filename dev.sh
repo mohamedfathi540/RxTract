@@ -7,6 +7,14 @@ fi
 
 set -euo pipefail
 
+# --- Detach mode flag ---
+DETACH_MODE=false
+for arg in "$@"; do
+    if [ "$arg" == "-d" ] || [ "$arg" == "--detach" ]; then
+        DETACH_MODE=true
+    fi
+done
+
 # ─────────────────────────────────────────────────────────
 # RxTract Development Environment
 # Hybrid mode: Docker for infra, local for app
@@ -526,8 +534,15 @@ echo -e "  2. Open ${WHITE}captcha.jpg${NC} and type the code."
 echo -e "  3. Result saved to ${WHITE}SRC/Assets/Files/eda_medicines.csv${NC}"
 
 # ─────────────────────────────────────────────────────────
-# Tail logs
+# Tail logs (or detach)
 # ─────────────────────────────────────────────────────────
+if [ "$DETACH_MODE" = true ]; then
+    echo -e "\n${GREEN}${BOLD}  ✨ RxTract is now running in the background (-d) ✨${NC}"
+    echo -e "  ${DIM}To stop the background services later, run this command:${NC}"
+    echo -e "  ${WHITE}kill \$(cat /tmp/rxtract/backend.pid 2>/dev/null) \$(cat /tmp/rxtract/frontend.pid 2>/dev/null) \$(cat /tmp/rxtract/cloudflared.pid 2>/dev/null) 2>/dev/null || true${NC}\n"
+    exit 0
+fi
+
 step "Tailing logs (backend + frontend)..."
 echo -e "  ${DIM}Backend log: $LOG_DIR/backend.log${NC}"
 echo -e "  ${DIM}Frontend log: $LOG_DIR/frontend.log${NC}"
