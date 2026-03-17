@@ -5,10 +5,20 @@ from sqlalchemy import pool
 
 from alembic import context
 from Schemes import SQLAlchemyBase
+import os 
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
+
+# --- ADD THIS BLOCK TO OVERRIDE THE INI FILE ---
+# Fetch the DATABASE_URL exported by your dev.sh script
+db_url = os.environ.get("DATABASE_URL")
+if db_url:
+    # This overwrites the literal "${DATABASE_URL}" string in alembic.ini 
+    # with the actual postgres connection string.
+    config.set_main_option("sqlalchemy.url", db_url)
+# -----------------------------------------------
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

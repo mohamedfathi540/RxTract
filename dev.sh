@@ -320,8 +320,24 @@ else
     info "Backend will try to connect to PostgreSQL at localhost:$PORT_POSTGRES"
 fi
 
-# 2. Backend (FastAPI)
-step "Starting FastAPI backend on port $PORT_BACKEND..."
+# 2. Run database migrations before starting backend
+step "Running database migrations..."
+export DATABASE_URL="postgresql://postgres:postgres@localhost:5436/minirag"
+
+# Tell the script exactly where the ini file is 
+# (If your alembic.ini is NOT in this minirag folder, change this path to point to it)
+ALEMBIC_CONFIG="$SCRIPT_DIR/SRC/Models/DB_Schemes/minirag/alembic.ini"
+
+cd "$SCRIPT_DIR/SRC/Models/DB_Schemes/minirag"
+
+if [ -x "$SCRIPT_DIR/SRC/.venv/bin/alembic" ]; then
+    # We added the -c flag here
+    "$SCRIPT_DIR/SRC/.venv/bin/alembic" -c "$ALEMBIC_CONFIG" upgrade head
+else
+    # We added the -c flag here too
+    alembic -c "$ALEMBIC_CONFIG" upgrade head
+fi
+
 cd "$SCRIPT_DIR/SRC"
 
 # Ensure backend env file exists for pydantic-settings.
