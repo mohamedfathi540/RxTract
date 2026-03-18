@@ -269,7 +269,7 @@ kill_previous
 if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
     COMPOSE_FILE="$SCRIPT_DIR/Docker/docker-compose.dev.yml"
     step "Starting Docker infrastructure (pgvector + qdrant + nginx proxy)..."
-    docker compose -f "$COMPOSE_FILE" up -d 2>&1 | while read -r line; do
+    docker compose -f "$COMPOSE_FILE" up -d --remove-orphans 2>&1 | while read -r line; do
         info "$line"
     done
 
