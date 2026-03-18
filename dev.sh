@@ -7,7 +7,26 @@ fi
 
 set -euo pipefail
 
-
+# Parse arguments
+DETACH=false
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -d|--detach)
+            DETACH=true
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: $0 [options]"
+            echo "Options:"
+            echo "  -d, --detach    Run in background and exit (survives terminal closure)"
+            echo "  -h, --help      Show this help message"
+            exit 0
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
 
 # ─────────────────────────────────────────────────────────
 # RxTract Development Environment
@@ -541,3 +560,25 @@ echo -e "\n  ${DIM}To tail logs:${NC}"
 echo -e "  ${WHITE}tail -f $LOG_DIR/backend.log $LOG_DIR/frontend.log${NC}"
 echo -e "\n  ${DIM}To stop all services:${NC}"
 echo -e "  ${WHITE}kill \$(cat /tmp/rxtract/backend.pid 2>/dev/null) \$(cat /tmp/rxtract/frontend.pid 2>/dev/null) \$(cat /tmp/rxtract/cloudflared.pid 2>/dev/null) 2>/dev/null || true${NC}\n"
+
+# ─────────────────────────────────────────────────────────
+# Execution Mode
+# ─────────────────────────────────────────────────────────
+if [ "$DETACH" = true ]; then
+    step "Detaching processes from terminal..."
+    # Disown all background jobs so they survive shell exit/SIGHUP
+    disown -a 2>/dev/null || true
+    
+    # Disable the cleanup trap so exiting dev.sh doesn't trigger it
+    trap - SIGINT SIGTERM
+    
+    echo -e "${GREEN}${BOLD}  ✅ RxTract is now detached. You can safely close this terminal. ✨${NC}\n"
+    exit 0
+else
+    echo -e "${CYAN}${BOLD}  ℹ Running in foreground mode.${NC}"
+    echo -e "  ${DIM}The services will stop if you close this window or press Ctrl+C.${NC}"
+    echo -e "  ${DIM}Use ${WHITE}--detach${NC}${DIM} to run in the background permanently.${NC}\n"
+    
+    # Wait for background processes to keep the script and trap alive
+    wait
+fi
