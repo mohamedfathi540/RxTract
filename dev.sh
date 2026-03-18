@@ -7,13 +7,7 @@ fi
 
 set -euo pipefail
 
-# --- Detach mode flag ---
-DETACH_MODE=false
-for arg in "$@"; do
-    if [ "$arg" == "-d" ] || [ "$arg" == "--detach" ]; then
-        DETACH_MODE=true
-    fi
-done
+
 
 # ─────────────────────────────────────────────────────────
 # RxTract Development Environment
@@ -534,25 +528,16 @@ echo -e "  2. Open ${WHITE}captcha.jpg${NC} and type the code."
 echo -e "  3. Result saved to ${WHITE}SRC/Assets/Files/eda_medicines.csv${NC}"
 
 # ─────────────────────────────────────────────────────────
-# Tail logs (or detach)
+# Background mode — exit after startup
 # ─────────────────────────────────────────────────────────
-if [ "$DETACH_MODE" = true ]; then
-    echo -e "\n${GREEN}${BOLD}  ✨ RxTract is now running in the background (-d) ✨${NC}"
-    echo -e "  ${DIM}To stop the background services later, run this command:${NC}"
-    echo -e "  ${WHITE}kill \$(cat /tmp/rxtract/backend.pid 2>/dev/null) \$(cat /tmp/rxtract/frontend.pid 2>/dev/null) \$(cat /tmp/rxtract/cloudflared.pid 2>/dev/null) 2>/dev/null || true${NC}\n"
-    exit 0
-fi
-
-step "Tailing logs (backend + frontend)..."
-echo -e "  ${DIM}Backend log: $LOG_DIR/backend.log${NC}"
-echo -e "  ${DIM}Frontend log: $LOG_DIR/frontend.log${NC}"
+echo -e "\n${GREEN}${BOLD}  ✨ RxTract is now running in the background ✨${NC}"
+echo -e "  ${DIM}Logs:${NC}"
+echo -e "    ${WHITE}Backend  → $LOG_DIR/backend.log${NC}"
+echo -e "    ${WHITE}Frontend → $LOG_DIR/frontend.log${NC}"
 if [ -f "$CLOUDFLARED_PID" ]; then
-    echo -e "  ${DIM}Cloudflared log: $LOG_DIR/cloudflared.log${NC}"
+echo -e "    ${WHITE}Tunnel   → $LOG_DIR/cloudflared.log${NC}"
 fi
-echo ""
-
-if [ -f "$CLOUDFLARED_PID" ]; then
-    tail -f "$LOG_DIR/backend.log" "$LOG_DIR/frontend.log" "$LOG_DIR/cloudflared.log" 2>/dev/null || wait
-else
-    tail -f "$LOG_DIR/backend.log" "$LOG_DIR/frontend.log" 2>/dev/null || wait
-fi
+echo -e "\n  ${DIM}To tail logs:${NC}"
+echo -e "  ${WHITE}tail -f $LOG_DIR/backend.log $LOG_DIR/frontend.log${NC}"
+echo -e "\n  ${DIM}To stop all services:${NC}"
+echo -e "  ${WHITE}kill \$(cat /tmp/rxtract/backend.pid 2>/dev/null) \$(cat /tmp/rxtract/frontend.pid 2>/dev/null) \$(cat /tmp/rxtract/cloudflared.pid 2>/dev/null) 2>/dev/null || true${NC}\n"
