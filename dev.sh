@@ -6,20 +6,14 @@ if [ -z "${BASH_VERSION:-}" ]; then
 fi
 
 set -euo pipefail
+export COMPOSE_PROJECT_NAME=rxtract
 
-# Parse arguments
-DETACH=false
+# Parse arguments (Removed -d as it is now the default behavior)
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -d|--detach)
-            DETACH=true
-            shift
-            ;;
         -h|--help)
-            echo "Usage: $0 [options]"
-            echo "Options:"
-            echo "  -d, --detach    Run in background and exit (survives terminal closure)"
-            echo "  -h, --help      Show this help message"
+            echo "Usage: $0"
+            echo "Starts the RxTract development environment in the background."
             exit 0
             ;;
         *)
@@ -134,11 +128,10 @@ kill_previous() {
         fi
         rm -f "$FRONTEND_PID"
     fi
-    # Forcefully clear the required ports if they are still held (e.g. by an orphaned or root process)
+    # Forcefully clear the required ports if they are still held
     for port in "$PORT_BACKEND" "$PORT_FRONTEND" "$PORT_NGINX"; do
         if command -v lsof &>/dev/null; then
             pids=$(lsof -t -i:"$port" 2>/dev/null || true)
-            # If standard lsof misses it, we might need sudo for root processes holding our ports
             if [ -z "$pids" ]; then
                 pids=$(sudo -n lsof -t -i:"$port" 2>/dev/null || true)
             fi
@@ -229,7 +222,7 @@ cleanup() {
         rm -f "$CLOUDFLARED_PID"
     fi
 
-    # Stop Docker infra (only if Docker is truly available)
+    # Stop Docker infra
     if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
         docker compose -f "$SCRIPT_DIR/Docker/docker-compose.dev.yml" down 2>/dev/null || true
         success "Docker infra stopped"
@@ -265,7 +258,7 @@ fi
 # 0. Kill previous sessions
 kill_previous
 
-# 1. Docker infrastructure (if Docker is truly available)
+# 1. Docker infrastructure
 if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
     COMPOSE_FILE="$SCRIPT_DIR/Docker/docker-compose.dev.yml"
     step "Starting Docker infrastructure (pgvector + qdrant + nginx proxy)..."
@@ -294,18 +287,6 @@ if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
 
     if [ "$pg_ready" != true ]; then
         fail "PostgreSQL is unhealthy. Backend startup cancelled."
-        info "Recent pgvector logs:"
-        pg_container_id=$(docker compose -f "$COMPOSE_FILE" ps -q pgvector 2>/dev/null || true)
-        if [ -n "$pg_container_id" ]; then
-            docker logs --tail 40 "$pg_container_id" 2>&1 | while read -r line; do
-                info "$line"
-            done
-        else
-            info "pgvector service container not found."
-            docker compose -f "$COMPOSE_FILE" ps 2>&1 | while read -r line; do
-                info "$line"
-            done
-        fi
         exit 1
     fi
 
@@ -317,9 +298,6 @@ if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
             break
         fi
         sleep 2
-        if [ "$i" -eq 15 ]; then
-            warn "Qdrant may not be ready yet — continuing anyway"
-        fi
     done
 
     # Check Nginx container state in hybrid mode
@@ -330,38 +308,28 @@ if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
             break
         fi
         sleep 1
-        if [ "$i" -eq 10 ]; then
-            warn "Nginx proxy may not be running yet — check: docker compose -f $COMPOSE_FILE logs rxtract_nginx_dev"
-        fi
     done
 else
     step "Docker not found — skipping infrastructure containers"
     warn "pgvector, qdrant, and nginx proxy will not be started"
-    warn "Make sure they are running elsewhere, or install Docker"
-    info "Backend will try to connect to PostgreSQL at localhost:$PORT_POSTGRES"
 fi
 
 # 2. Run database migrations before starting backend
 step "Running database migrations..."
 export DATABASE_URL="postgresql://postgres:postgres@localhost:5436/minirag"
-
-# Tell the script exactly where the ini file is 
-# (If your alembic.ini is NOT in this minirag folder, change this path to point to it)
 ALEMBIC_CONFIG="$SCRIPT_DIR/SRC/Models/DB_Schemes/minirag/alembic.ini"
 
 cd "$SCRIPT_DIR/SRC/Models/DB_Schemes/minirag"
 
 if [ -x "$SCRIPT_DIR/SRC/.venv/bin/alembic" ]; then
-    # We added the -c flag here
     "$SCRIPT_DIR/SRC/.venv/bin/alembic" -c "$ALEMBIC_CONFIG" upgrade head
 else
-    # We added the -c flag here too
     alembic -c "$ALEMBIC_CONFIG" upgrade head
 fi
 
 cd "$SCRIPT_DIR/SRC"
 
-# Ensure backend env file exists for pydantic-settings.
+# Ensure backend env file exists
 ENV_FILE="$SCRIPT_DIR/SRC/.env"
 if [ ! -f "$ENV_FILE" ]; then
     if [ -f "$SCRIPT_DIR/SRC/.env.example" ]; then
@@ -377,7 +345,6 @@ if [ ! -f "$ENV_FILE" ]; then
             [ -n "$pg_db" ] && sed -i -E "s|^POSTGRES_MAIN_DB\s*=.*$|POSTGRES_MAIN_DB = \"$pg_db\"|" "$ENV_FILE"
         fi
         warn "SRC/.env was missing. Created from SRC/.env.example"
-        info "Update POSTGRES_PASSWORD/API keys in SRC/.env if needed."
     else
         fail "Missing SRC/.env and SRC/.env.example"
         exit 1
@@ -394,35 +361,31 @@ done
 
 if [ ${#missing_keys[@]} -gt 0 ]; then
     fail "SRC/.env is missing required keys: ${missing_keys[*]}"
-    info "Edit SRC/.env and set the missing values, then run ./dev.sh again."
     exit 1
 fi
 
-# Keep hybrid backend aligned with dev Docker infra ports.
 export POSTGRES_HOST="${POSTGRES_HOST:-localhost}"
 export POSTGRES_PORT="${POSTGRES_PORT:-$PORT_POSTGRES}"
 
-# Activate venv or use uv
+# NOTE: </dev/null is added below to stop the processes from dying on terminal exit
 if [ -x ".venv/bin/python" ]; then
-    # Fast path: use existing virtualenv directly to avoid uv sync checks on every run.
     nohup .venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port "$PORT_BACKEND" --reload \
-        > "$LOG_DIR/backend.log" 2>&1 &
+        </dev/null > "$LOG_DIR/backend.log" 2>&1 &
 elif command -v uv &>/dev/null; then
     info "No local .venv found. Syncing backend dependencies with uv..."
     uv sync --no-dev > "$LOG_DIR/backend.log" 2>&1
     nohup uv run --no-sync uvicorn main:app --host 0.0.0.0 --port "$PORT_BACKEND" --reload \
-        >> "$LOG_DIR/backend.log" 2>&1 &
+        </dev/null >> "$LOG_DIR/backend.log" 2>&1 &
 else
     nohup python -m uvicorn main:app --host 0.0.0.0 --port "$PORT_BACKEND" --reload \
-        > "$LOG_DIR/backend.log" 2>&1 &
+        </dev/null > "$LOG_DIR/backend.log" 2>&1 &
 fi
 echo $! > "$BACKEND_PID"
 success "Backend starting (PID: $(cat "$BACKEND_PID"))"
 
-# Wait for backend — use short curl timeout to avoid hanging
+# Wait for backend
 echo -ne "  ${DIM}Waiting for backend"
 for i in $(seq 1 120); do
-    # First check if the process died
     bpid=$(cat "$BACKEND_PID" 2>/dev/null || true)
     if [ -n "$bpid" ] && ! kill -0 "$bpid" 2>/dev/null; then
         echo -e "${NC}"
@@ -432,13 +395,11 @@ for i in $(seq 1 120); do
         done
         break
     fi
-    # Check if "Application startup complete" appears in log
     if grep -q "Application startup complete" "$LOG_DIR/backend.log" 2>/dev/null; then
         echo -e "${NC}"
         success "Backend is up! → http://localhost:${PORT_BACKEND}/docs"
         break
     fi
-    # Also check if docs endpoint is reachable
     if curl -sf --connect-timeout 2 "http://localhost:${PORT_BACKEND}/docs" >/dev/null 2>&1; then
         echo -e "${NC}"
         success "Backend is up! → http://localhost:${PORT_BACKEND}/docs"
@@ -446,25 +407,19 @@ for i in $(seq 1 120); do
     fi
     echo -ne "."
     sleep 2
-    if [ "$i" -eq 120 ]; then
-        echo -e "${NC}"
-        warn "Backend not responding yet (first run can take time) — check $LOG_DIR/backend.log"
-    fi
 done
 
-# 4. Optional Cloudflare tunnel
+# 4. Optional Cloudflare tunnel (also with </dev/null added)
 if command -v cloudflared &>/dev/null; then
     if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
         step "Starting Cloudflare tunnel..."
-        nohup cloudflared tunnel run --token "$CLOUDFLARE_TUNNEL_TOKEN" > "$LOG_DIR/cloudflared.log" 2>&1 &
+        nohup cloudflared tunnel run --token "$CLOUDFLARE_TUNNEL_TOKEN" </dev/null > "$LOG_DIR/cloudflared.log" 2>&1 &
         cloudflared_pid="$!"
         echo "$cloudflared_pid" > "$CLOUDFLARED_PID"
         success "Cloudflare tunnel starting (PID: $cloudflared_pid)"
     else
         info "Cloudflare tunnel skipped (set CLOUDFLARE_TUNNEL_TOKEN to enable)"
     fi
-else
-    info "cloudflared not installed — tunnel skipped"
 fi
 
 # 3. Frontend (Vite)
@@ -483,14 +438,14 @@ if [ -s "$HOME/.nvm/nvm.sh" ]; then
     nvm use 22 || nvm install 22
 fi
 
-nohup pnpm dev --host 0.0.0.0 > "$LOG_DIR/frontend.log" 2>&1 &
+# NOTE: </dev/null added here as well
+nohup pnpm dev --host 0.0.0.0 </dev/null > "$LOG_DIR/frontend.log" 2>&1 &
 echo $! > "$FRONTEND_PID"
 success "Frontend starting (PID: $(cat "$FRONTEND_PID"))"
 
-# Wait for frontend — check log instead of curl
+# Wait for frontend
 echo -ne "  ${DIM}Waiting for frontend"
 for i in $(seq 1 60); do
-    # First check if the process died
     fpid=$(cat "$FRONTEND_PID" 2>/dev/null || true)
     if [ -n "$fpid" ] && ! kill -0 "$fpid" 2>/dev/null; then
         echo -e "${NC}"
@@ -512,10 +467,6 @@ for i in $(seq 1 60); do
     fi
     echo -ne "."
     sleep 2
-    if [ "$i" -eq 60 ]; then
-        echo -e "${NC}"
-        warn "Frontend not responding yet — check $LOG_DIR/frontend.log"
-    fi
 done
 
 # ─────────────────────────────────────────────────────────
@@ -535,19 +486,11 @@ if [ -f "$CLOUDFLARED_PID" ]; then
 echo -e "${GREEN}${BOLD}  ║${NC}  ${CYAN}Cloudflare${NC}   → ${WHITE}Tunnel enabled (see logs)${NC}   ${GREEN}${BOLD}║${NC}"
 fi
 echo -e "${GREEN}${BOLD}  ║${NC}                                               ${GREEN}${BOLD}║${NC}"
-echo -e "${GREEN}${BOLD}  ║${NC}                                               ${GREEN}${BOLD}║${NC}"
-echo -e "${GREEN}${BOLD}  ╠═══════════════════════════════════════════════╣${NC}"
-echo -e "${GREEN}${BOLD}  ║${NC}  ${DIM}Press ${WHITE}Ctrl+C${NC}${DIM} to stop all services${NC}           ${GREEN}${BOLD}║${NC}"
 echo -e "${GREEN}${BOLD}  ╚═══════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "\n${CYAN}${BOLD}[ Medicine Scraper Instructions ]${NC}"
-echo -e "  To update the medicine database from EDA:"
-echo -e "  1. Run: ${WHITE}uv run python3 SRC/scripts/scrape_eda.py${NC}"
-echo -e "  2. Open ${WHITE}captcha.jpg${NC} and type the code."
-echo -e "  3. Result saved to ${WHITE}SRC/Assets/Files/eda_medicines.csv${NC}"
 
 # ─────────────────────────────────────────────────────────
-# Background mode — exit after startup
+# Background mode — completely detach and exit
 # ─────────────────────────────────────────────────────────
 echo -e "\n${GREEN}${BOLD}  ✨ RxTract is now running in the background ✨${NC}"
 echo -e "  ${DIM}Logs:${NC}"
@@ -558,27 +501,14 @@ echo -e "    ${WHITE}Tunnel   → $LOG_DIR/cloudflared.log${NC}"
 fi
 echo -e "\n  ${DIM}To tail logs:${NC}"
 echo -e "  ${WHITE}tail -f $LOG_DIR/backend.log $LOG_DIR/frontend.log${NC}"
-echo -e "\n  ${DIM}To stop all services:${NC}"
+echo -e "\n  ${DIM}To stop all services manually:${NC}"
 echo -e "  ${WHITE}kill \$(cat /tmp/rxtract/backend.pid 2>/dev/null) \$(cat /tmp/rxtract/frontend.pid 2>/dev/null) \$(cat /tmp/rxtract/cloudflared.pid 2>/dev/null) 2>/dev/null || true${NC}\n"
 
-# ─────────────────────────────────────────────────────────
-# Execution Mode
-# ─────────────────────────────────────────────────────────
-if [ "$DETACH" = true ]; then
-    step "Detaching processes from terminal..."
-    # Disown all background jobs so they survive shell exit/SIGHUP
-    disown -a 2>/dev/null || true
-    
-    # Disable the cleanup trap so exiting dev.sh doesn't trigger it
-    trap - SIGINT SIGTERM
-    
-    echo -e "${GREEN}${BOLD}  ✅ RxTract is now detached. You can safely close this terminal. ✨${NC}\n"
-    exit 0
-else
-    echo -e "${CYAN}${BOLD}  ℹ Running in foreground mode.${NC}"
-    echo -e "  ${DIM}The services will stop if you close this window or press Ctrl+C.${NC}"
-    echo -e "  ${DIM}Use ${WHITE}--detach${NC}${DIM} to run in the background permanently.${NC}\n"
-    
-    # Wait for background processes to keep the script and trap alive
-    wait
-fi
+# Disown all background jobs so they survive shell exit/SIGHUP
+disown -a 2>/dev/null || true
+
+# Disable the cleanup trap so exiting dev.sh doesn't accidentally kill the processes
+trap - SIGINT SIGTERM
+
+echo -e "${GREEN}${BOLD}  ✅ Setup complete. You can safely close this terminal. ✨${NC}\n"
+exit 0
