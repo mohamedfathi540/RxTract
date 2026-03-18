@@ -6,6 +6,7 @@ if [ -z "${BASH_VERSION:-}" ]; then
 fi
 
 set -euo pipefail
+export COMPOSE_PROJECT_NAME=rxtract
 
 # Parse arguments (Removed -d as it is now the default behavior)
 while [[ $# -gt 0 ]]; do
