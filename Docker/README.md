@@ -17,7 +17,7 @@
 
 | Service | Container Name | Image | Host Port | Internal Port | Purpose |
 |---------|---------------|-------|-----------|---------------|---------|
-| FastAPI | `rxtract_fastapi` | Custom build | 8009 | 8000 | FastAPI application server |
+| FastAPI | `rxtract_fastapi` | Custom build | 8009 | 8001 | FastAPI application server |
 | Frontend | `rxtract_frontend` | Custom build | 5174 | 80 | React 19 SPA (Nginx-served) |
 | Nginx | `rxtract_nginx` | nginx:latest | 8899 | 80 | Reverse proxy (routes to frontend + API) |
 | PostgreSQL | `rxtract_pgvector` | pgvector/pgvector:0.8.0-pg17 | 5436 | 5432 | PostgreSQL with vector similarity search |
@@ -31,7 +31,7 @@ For local development, databases and a lightweight Nginx gateway run in Docker:
 |---------|---------------|-----------|-------|
 | pgvector | `pgvector` | 5436 | PostgreSQL 17 + pgvector 0.8.0 |
 | qdrant | `qdrant` | 6337, 6338 | Vector database |
-| Nginx (hybrid proxy) | `rxtract_nginx_dev` | 8899 | Proxies to local frontend (`5777`) and local backend (`8000`) |
+| Nginx (hybrid proxy) | `rxtract_nginx_dev` | 8899 | Proxies to local frontend (`5777`) and local backend (`8001`) |
 
 Dev stack bind mounts:
 
@@ -101,7 +101,7 @@ See `SRC/.env.example` for the full variable reference with descriptions.
 
 Routes incoming HTTP requests:
 
-- `/api/v1/*`, `/docs`, `/openapi.json` -> FastAPI (`rxtract_fastapi:8000`)
+- `/api/v1/*`, `/docs`, `/openapi.json` -> FastAPI (`rxtract_fastapi:8001`)
 - `/` (everything else) -> Frontend (`rxtract_frontend:80`)
 - `/kfgndfkk4464_fubfd555` -> FastAPI Prometheus metrics endpoint (obfuscated path)
 
@@ -153,7 +153,7 @@ cd /app/Models/DB_Schemes/minirag
 alembic upgrade head       # Apply pending migrations
 cd /app
 echo "Starting uvicorn server..."
-exec uvicorn main:app --host 0.0.0.0 --port 8000
+exec uvicorn main:app --host 0.0.0.0 --port 8001
 ```
 
 ### PostgreSQL Healthcheck

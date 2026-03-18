@@ -153,7 +153,7 @@ This script will:
 1. Start **PostgreSQL (pgvector)** and **Qdrant** via Docker
 2. Start **Nginx gateway** via Docker on port `8899` (hybrid reverse proxy)
 3. Wait for databases to become healthy
-4. Launch the **FastAPI backend** with hot-reload on port `8000`
+4. Launch the **FastAPI backend** with hot-reload on port `8001`
 5. Launch the **Vite frontend** with HMR on port `5777`
 6. Tail all logs in your terminal
 
@@ -180,7 +180,7 @@ bash dev-stop.sh
 |---------|-----|
 | Application (via Nginx) | `http://localhost:8899` |
 | Frontend | `http://localhost:5777` |
-| API Docs | `http://localhost:8000/docs` |
+| API Docs | `http://localhost:8001/docs` |
 | PostgreSQL | `localhost:5436` |
 | Qdrant Dashboard | `http://localhost:6337/dashboard` |
 

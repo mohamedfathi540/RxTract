@@ -6,7 +6,7 @@ services:
       dockerfile: Docker/minirag/Dockerfile
     container_name: rxtract_fastapi
     ports:
-      - "8009:8000"
+      - "8009:8001"
     volumes:
       - rxtract_fastapi_data:/app/Assets
       # Forces downloaded AI models to save on the 2TB drive

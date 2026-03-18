@@ -2,7 +2,7 @@
 
 This document describes the REST API endpoints available in RxTract.
 
-Base URL: `http://localhost:8000/api/v1`
+Base URL: `http://localhost:8001/api/v1`
 
 ---
 

@@ -23,6 +23,6 @@ scrape_configs:
 
   - job_name: 'fastapi'
     static_configs:
-      - targets: ['fastapi:8000']
+      - targets: ['fastapi:8001']
     metrics_path: '/kfgndfkk4464_fubfd555'
 

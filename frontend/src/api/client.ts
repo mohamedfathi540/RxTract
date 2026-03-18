@@ -95,7 +95,7 @@ export const uploadFileWithProgress = async (
                 onProgress(progress);
             }
         },
-        timeout: 180000, // 3 minutes for OCR processing
+        timeout: 180010, // 3 minutes for OCR processing
     });
 };
 

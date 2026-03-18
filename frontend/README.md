@@ -62,7 +62,7 @@ Create a `.env` file (optional -- defaults work for local development):
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `VITE_API_URL` | RxTract API base URL | `http://localhost:8000/api/v1` |
+| `VITE_API_URL` | RxTract API base URL | `http://localhost:8001/api/v1` |
 
 ### Build for Production
 
