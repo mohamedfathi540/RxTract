@@ -369,15 +369,15 @@ export POSTGRES_PORT="${POSTGRES_PORT:-$PORT_POSTGRES}"
 
 # NOTE: </dev/null is added below to stop the processes from dying on terminal exit
 if [ -x ".venv/bin/python" ]; then
-    nohup .venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port "$PORT_BACKEND" --reload \
+    nohup .venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port "$PORT_BACKEND" --reload --reload-exclude '.venv' \
         </dev/null > "$LOG_DIR/backend.log" 2>&1 &
 elif command -v uv &>/dev/null; then
     info "No local .venv found. Syncing backend dependencies with uv..."
     uv sync --no-dev > "$LOG_DIR/backend.log" 2>&1
-    nohup uv run --no-sync uvicorn main:app --host 0.0.0.0 --port "$PORT_BACKEND" --reload \
+    nohup uv run --no-sync uvicorn main:app --host 0.0.0.0 --port "$PORT_BACKEND" --reload --reload-exclude '.venv' \
         </dev/null >> "$LOG_DIR/backend.log" 2>&1 &
 else
-    nohup python -m uvicorn main:app --host 0.0.0.0 --port "$PORT_BACKEND" --reload \
+    nohup python -m uvicorn main:app --host 0.0.0.0 --port "$PORT_BACKEND" --reload --reload-exclude '.venv' \
         </dev/null > "$LOG_DIR/backend.log" 2>&1 &
 fi
 echo $! > "$BACKEND_PID"
