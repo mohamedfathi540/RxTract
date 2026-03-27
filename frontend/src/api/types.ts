@@ -89,6 +89,12 @@ export interface ChatMessage {
 
 // Prescription Types
 
+export interface Candidate {
+    name: string;
+    product_url: string;
+    image_url: string;
+}
+
 export interface MedicineInfo {
     name: string;
     active_ingredient: string;
@@ -96,6 +102,7 @@ export interface MedicineInfo {
     form: string | null;
     image_url: string | null;
     product_url: string | null;
+    candidates?: Candidate[];
 }
 
 export interface PrescriptionResponse {

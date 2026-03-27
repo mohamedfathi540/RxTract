@@ -20,6 +20,9 @@ import {
     AlertTriangle,
     Info,
     Images,
+    Sparkles,
+    HelpCircle,
+    ExternalLink,
 } from "lucide-react";
 
 /** Convert a File to a data URL so it survives page switches */
@@ -35,6 +38,7 @@ function fileToDataUrl(file: File): Promise<string> {
 /** Pipeline step definitions */
 const PIPELINE_STEPS = [
     { key: "upload", label: "Upload", icon: Upload },
+    { key: "preprocess", label: "Preprocessing", icon: Sparkles },
     { key: "ocr", label: "OCR Processing", icon: Search },
     { key: "extraction", label: "Medicine Extraction", icon: Pill },
     { key: "enrichment", label: "Ingredient Lookup", icon: FlaskConical },
@@ -449,6 +453,30 @@ export function PrescriptionPage() {
                                         )}
                                     </div>
                                 </div>
+
+                                {/* ── "Did you mean?" candidate suggestions ── */}
+                                {med.candidates && med.candidates.length > 0 && (
+                                    <div className="mt-4 p-4 rounded-lg bg-amber-500/8 border border-amber-500/20">
+                                        <p className="text-sm font-medium text-amber-400 flex items-center gap-1.5 mb-3">
+                                            <HelpCircle className="w-4 h-4" />
+                                            Did you mean one of these?
+                                        </p>
+                                        <div className="flex gap-2 flex-wrap">
+                                            {med.candidates.map((cand) => (
+                                                <a
+                                                    key={cand.name}
+                                                    href={cand.product_url || cand.image_url}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-bg-tertiary hover:bg-amber-500/15 text-text-secondary hover:text-amber-300 border border-border hover:border-amber-500/40 rounded-full transition-all duration-200"
+                                                >
+                                                    {cand.name}
+                                                    <ExternalLink className="w-3 h-3 opacity-50" />
+                                                </a>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         ))}
                     </div>

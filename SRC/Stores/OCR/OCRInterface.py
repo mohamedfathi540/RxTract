@@ -123,8 +123,17 @@ class OCRInterface(ABC):
 
     def preprocess_image(self, file_path: str) -> str:
         """
-        Preprocess image before OCR: denoise, binarize, deskew.
-        Returns the path to the cleaned image (or original if processing fails).
+        Advanced image preprocessing pipeline for OCR.
+
+        Steps:
+            1. Read as grayscale
+            2. CLAHE contrast enhancement
+            3. Bilateral filter (edge-preserving denoise)
+            4. Otsu's thresholding (with adaptive fallback)
+            5. Morphological cleanup (remove noise specks)
+            6. Deskew (angle-clamped to ±15°)
+
+        Returns the path to the cleaned image, or the original on failure.
         """
         try:
             import cv2
@@ -133,47 +142,64 @@ class OCRInterface(ABC):
             logger.warning("opencv-python not installed — skipping image preprocessing")
             return file_path
 
-        img = cv2.imread(file_path, cv2.IMREAD_COLOR)
-        if img is None:
+        try:
+            # 1. Read image directly as grayscale
+            gray = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
+            if gray is None:
+                logger.warning("Could not read image: %s", file_path)
+                return file_path
+
+            # 2. CLAHE contrast enhancement (adaptive histogram equalization)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            enhanced = clahe.apply(gray)
+
+            # 3. Edge-preserving denoising (bilateral filter)
+            denoised = cv2.bilateralFilter(enhanced, d=9, sigmaColor=75, sigmaSpace=75)
+
+            # 4. Binarization — try Otsu's first, fall back to adaptive threshold
+            otsu_val, binary = cv2.threshold(
+                denoised, 0, 255,
+                cv2.THRESH_BINARY + cv2.THRESH_OTSU,
+            )
+            # If Otsu picks a poor threshold (too low contrast), use adaptive
+            if otsu_val < 50 or otsu_val > 230:
+                binary = cv2.adaptiveThreshold(
+                    denoised, 255,
+                    cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                    cv2.THRESH_BINARY, 11, 2,
+                )
+
+            # 5. Morphological cleanup — remove small noise specks
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
+            cleaned = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
+
+            # 6. Deskew — find skew angle from non-zero pixel coordinates
+            coords = np.column_stack(np.where(cleaned == 0))
+            if len(coords) > 100:  # need enough points for reliable measurement
+                angle = cv2.minAreaRect(coords)[-1]
+                if angle < -45:
+                    angle = -(90 + angle)
+                else:
+                    angle = -angle
+
+                # Only correct small angles (likely scan skew, not rotation)
+                if abs(angle) <= 15:
+                    (h, w) = cleaned.shape[:2]
+                    center = (w // 2, h // 2)
+                    M = cv2.getRotationMatrix2D(center, angle, 1.0)
+                    cleaned = cv2.warpAffine(
+                        cleaned, M, (w, h),
+                        flags=cv2.INTER_CUBIC,
+                        borderMode=cv2.BORDER_REPLICATE,
+                    )
+
+            import os
+            dir_name, file_name = os.path.split(file_path)
+            output_path = os.path.join(dir_name, f"preprocessed_{file_name}")
+            cv2.imwrite(output_path, cleaned)
+            logger.info("Advanced preprocessing complete: %s → %s", file_path, output_path)
+            return output_path
+
+        except Exception as e:
+            logger.error("Image preprocessing failed: %s", e)
             return file_path
-
-        # Convert to grayscale
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-        # Denoising
-        denoised = cv2.fastNlMeansDenoising(gray, h=30)
-
-        # Binarization (adaptive thresholding)
-        thresh = cv2.adaptiveThreshold(
-            denoised, 255,
-            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY, 11, 2,
-        )
-
-        # Deskew: find angle from non-zero pixel coordinates
-        coords = np.column_stack(np.where(thresh == 0))
-        if len(coords) == 0:
-            return file_path
-
-        angle = cv2.minAreaRect(coords)[-1]
-        if angle < -45:
-            angle = -(90 + angle)
-        else:
-            angle = -angle
-
-        # Only correct small angles (likely scan skew, not rotation)
-        if abs(angle) > 20:
-            angle = 0
-
-        (h, w) = img.shape[:2]
-        center = (w // 2, h // 2)
-        M = cv2.getRotationMatrix2D(center, angle, 1.0)
-        rotated = cv2.warpAffine(
-            img, M, (w, h),
-            flags=cv2.INTER_CUBIC,
-            borderMode=cv2.BORDER_REPLICATE,
-        )
-
-        output_path = file_path + "_cleaned.png"
-        cv2.imwrite(output_path, rotated)
-        return output_path

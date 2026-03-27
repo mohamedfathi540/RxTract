@@ -201,6 +201,39 @@ class MedicineMatcher:
             logger.error(f"Fuzzy match error for '{query}': {e}")
         
         return None
+
+    def get_candidates(self, query: str, limit: int = 3) -> List[str]:
+        """
+        Return the top *limit* closest medicine-name candidates for *query*.
+
+        Uses ``thefuzz.process.extract`` with ``token_set_ratio`` and a
+        generous threshold (≥ 50) so the user can choose the right match
+        when exact/high-confidence matching fails.
+        """
+        if not query or len(query) < 3:
+            return []
+
+        q_clean = re.sub(
+            r'\s*\d+\s*(mg|gm|g|ml|mcg|iu|%|units?).*$',
+            '', query.lower(),
+        ).strip()
+
+        try:
+            results = process.extract(
+                q_clean or query, self.medicines,
+                scorer=fuzz.token_set_ratio, limit=limit,
+            )
+            candidates = []
+            for res_tuple in results:
+                name, score = res_tuple[0], res_tuple[1]
+                if score >= 50:
+                    canonical = self.medicine_map.get(name.lower(), name)
+                    candidates.append(canonical)
+            return candidates
+        except Exception as e:
+            logger.error("Candidate match error for '%s': %s", query, e)
+            return []
+
     def find_medicines_by_ingredient(self, ingredient: str, limit: int = 5) -> List[str]:
         """
         Search the database for medicines containing the given active ingredient.

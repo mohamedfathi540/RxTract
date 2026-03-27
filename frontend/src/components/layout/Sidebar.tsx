@@ -6,14 +6,11 @@ import {
   ArrowRightStartOnRectangleIcon,
 } from "@heroicons/react/24/outline";
 import { Menu, X } from "lucide-react";
-import { useSettingsStore } from "../../stores/settingsStore";
 import { Logo } from "../ui/Logo";
 import { useAuthStore } from "../../stores/authStore";
-import { StatusBadge } from "../ui/StatusBadge";
 import { Button } from "../ui/Button";
 import { QuotaPanel } from "../ui/QuotaPanel";
-import { checkHealth } from "../../api/base";
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 
 const navigation = [
   { name: "Prescription", href: "/prescription", icon: DocumentTextIcon },
@@ -27,23 +24,10 @@ interface SidebarProps {
 }
 
 export function Sidebar({ isOpen, onToggle }: SidebarProps) {
-  const { apiUrl } = useSettingsStore();
   const { userEmail, logout } = useAuthStore();
   const navigate = useNavigate();
-  const [apiStatus, setApiStatus] = useState<"online" | "offline">("offline");
-  const [isChecking, setIsChecking] = useState(false);
 
-  const checkApiStatus = async () => {
-    setIsChecking(true);
-    try {
-      await checkHealth();
-      setApiStatus("online");
-    } catch {
-      setApiStatus("offline");
-    } finally {
-      setIsChecking(false);
-    }
-  };
+
 
   const handleLogout = () => {
     logout();
@@ -158,23 +142,7 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
             </button>
           </div>
 
-          <div className="flex items-center justify-between gap-2">
-            <StatusBadge
-              status={apiStatus}
-              text={isChecking ? "Checking..." : undefined}
-            />
-            <Button
-              variant="ghost"
-              size="sm"
-              onPress={checkApiStatus}
-              isLoading={isChecking}
-            >
-              Check
-            </Button>
-          </div>
-          <p className="text-[11px] text-text-muted truncate" title={apiUrl}>
-            {apiUrl}
-          </p>
+
         </div>
       </aside>
     </>

@@ -98,7 +98,7 @@ class PrescriptionController(basecontroller):
             )
 
         # ── Step 1: Preprocess image ────────────────────────────────
-        await on_progress("preprocess", "Preprocessing image...", 10)
+        await on_progress("preprocess", "Applying advanced preprocessing...", 10)
         cleaned_path = await run_in_threadpool(
             ocr_client.preprocess_image, file_path
         )
@@ -282,6 +282,22 @@ class PrescriptionController(basecontroller):
                     active = local_active
                     logger.info("Local Matcher enhanced '%s': %s", name, active)
 
+            # 4. Candidate suggestions when ingredient remains unknown
+            candidates_data = []
+            if active.lower() == "unknown":
+                candidate_names = self.medicine_matcher.get_candidates(name, limit=3)
+                for cand_name in candidate_names:
+                    if cand_name.lower() != name.lower():
+                        c_scraped = await self._scrape_medicine_url(cand_name)
+                        candidates_data.append({
+                            "name": cand_name,
+                            "product_url": c_scraped.get("product_url", ""),
+                            "image_url": c_scraped.get(
+                                "image_url",
+                                self._build_google_image_url(cand_name),
+                            ),
+                        })
+
             return {
                 "name": original_name,
                 "active_ingredient": active,
@@ -289,6 +305,7 @@ class PrescriptionController(basecontroller):
                 "form": form,
                 "image_url": image_url,
                 "product_url": product_url,
+                "candidates": candidates_data,
             }
 
         tasks = [enrich(m) for m in medicines_raw]
