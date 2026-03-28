@@ -325,9 +325,7 @@ class PrescriptionController(basecontroller):
         Search dwaprices.com JSON API for medicine data.
         Returns active ingredient, product URL, image URL, and price.
         """
-        pharmacy_base = getattr(
-            self.settings, "PHARMACY_BASE_URL", "https://dwaprices.com"
-        ).rstrip("/")
+        pharmacy_base = self.settings.PHARMACY_BASE_URL.rstrip("/")
         api_url = f"{pharmacy_base}/routing.php"
         fallback = self._build_google_image_url(medicine_name)
 
