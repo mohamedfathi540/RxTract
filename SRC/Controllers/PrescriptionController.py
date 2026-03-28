@@ -332,8 +332,11 @@ class PrescriptionController(basecontroller):
         # Use the first word (brand name) for a targeted search
         first_word = medicine_name.split()[0] if medicine_name else medicine_name
         
-        # Generic fallback search URL if the selected base isn't dwaprices or lacks the API
-        generic_search_url = f"{pharmacy_base}/?s={quote_plus(first_word)}&post_type=product"
+        # Extract just the domain for Google site search fallback
+        domain = pharmacy_base.replace("https://", "").replace("http://", "").split("/")[0]
+        
+        # Generic fallback search URL using Google (works for any pharmacy site)
+        generic_search_url = f"https://www.google.com/search?q=site%3A{domain}+{quote_plus(first_word)}"
 
         try:
             async with httpx.AsyncClient(
