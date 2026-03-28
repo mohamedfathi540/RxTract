@@ -331,10 +331,22 @@ class PrescriptionController(basecontroller):
 
         # Use the first word (brand name) for a targeted search
         first_word = medicine_name.split()[0] if medicine_name else medicine_name
+
+        from urllib.parse import urlparse
         
-        # Generic fallback search URL using Google without domain restriction
-        # Many pharmacies (like Elezaby) only have mobile apps and no web catalog.
-        generic_search_url = f"https://www.google.com/search?q={quote_plus(first_word)}+medicine"
+        parsed_url = urlparse(pharmacy_base)
+        domain = parsed_url.netloc.lower()
+        
+        # Smart fallback URL construction based on standard e-commerce platforms
+        if "chefaa." in domain:
+            generic_search_url = f"{parsed_url.scheme}://{domain}/search?q={quote_plus(first_word)}"
+        elif "seif-online." in domain or "elezaby" in domain:
+            generic_search_url = f"{parsed_url.scheme}://{domain}/?s={quote_plus(first_word)}&post_type=product"
+        elif "nahdionline." in domain:
+            generic_search_url = f"{parsed_url.scheme}://{domain}/en/catalogsearch/result/?q={quote_plus(first_word)}"
+        else:
+            # General fallback (most modern sites use /search?q=)
+            generic_search_url = f"{parsed_url.scheme}://{domain}/search?q={quote_plus(first_word)}"
 
         try:
             async with httpx.AsyncClient(
