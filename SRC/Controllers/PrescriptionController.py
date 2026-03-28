@@ -410,8 +410,8 @@ class PrescriptionController(basecontroller):
                     resp = await client.get(generic_search_url, headers=headers)
                     if resp.status_code == 200:
                         html_lower = resp.text.lower()
-                        # Heuristic Check for "No results" text
-                        if not any(phrase in html_lower for phrase in NO_RESULTS_PHRASES):
+                        # Heuristic Check for "No results" text AND ensure the medicine name is echoed back
+                        if first_word.lower() in html_lower and not any(phrase in html_lower for phrase in NO_RESULTS_PHRASES):
                             # Product highly likely exists! Return this URL
                             logger.info(f"Verified '{medicine_name}' exists on {domain} via heuristic.")
                             return {
@@ -421,7 +421,7 @@ class PrescriptionController(basecontroller):
                                 "price": "",
                             }
                         else:
-                            logger.debug(f"Product '{medicine_name}' not found on {domain} (matched negative heuristic)")
+                            logger.debug(f"Product '{medicine_name}' not found on {domain} (matched negative heuristic or failed positive check)")
                     else:
                         logger.debug(f"Pharmacy {domain} returned HTTP {resp.status_code} for search")
                 except Exception as e:
