@@ -322,7 +322,7 @@ class PrescriptionController(basecontroller):
 
     async def _scrape_medicine_url(self, medicine_name: str) -> dict:
         """
-        Search dwaprices.com JSON API for medicine data.
+        Search pharmacy API for medicine data if available, else fallback to a search URL.
         Returns active ingredient, product URL, image URL, and price.
         """
         pharmacy_base = self.settings.PHARMACY_BASE_URL.rstrip("/")
@@ -331,6 +331,9 @@ class PrescriptionController(basecontroller):
 
         # Use the first word (brand name) for a targeted search
         first_word = medicine_name.split()[0] if medicine_name else medicine_name
+        
+        # Generic fallback search URL if the selected base isn't dwaprices or lacks the API
+        generic_search_url = f"{pharmacy_base}/?s={quote_plus(first_word)}&post_type=product"
 
         try:
             async with httpx.AsyncClient(
@@ -357,19 +360,19 @@ class PrescriptionController(basecontroller):
                         "Pharmacy API returned %d for '%s'",
                         resp.status_code, first_word,
                     )
-                    return {"product_url": "", "image_url": fallback, "active": ""}
+                    return {"product_url": generic_search_url, "image_url": fallback, "active": ""}
 
                 data = resp.json()
                 results = data.get("data", [])
                 if not results:
-                    return {"product_url": "", "image_url": fallback, "active": ""}
+                    return {"product_url": generic_search_url, "image_url": fallback, "active": ""}
 
                 # Pick the first result (API already filters by search term)
                 hit = results[0]
                 product_id = hit.get("id", "")
-                product_url = f"{pharmacy_base}/med.php?id={product_id}" if product_id else ""
+                product_url = f"{pharmacy_base}/med.php?id={product_id}" if product_id else generic_search_url
                 img = hit.get("img", "")
-                image_url = f"{pharmacy_base}/{img}" if img else ""
+                image_url = f"{pharmacy_base}/{img}" if img else fallback
                 active = hit.get("active", "")
                 price = hit.get("price", "")
 
@@ -381,14 +384,14 @@ class PrescriptionController(basecontroller):
 
                 return {
                     "product_url": product_url,
-                    "image_url": image_url or fallback,
+                    "image_url": image_url,
                     "active": active,
                     "price": price,
                 }
 
         except Exception as e:
             logger.debug("Pharmacy API failed for '%s': %s", medicine_name, e)
-            return {"product_url": "", "image_url": fallback, "active": ""}
+            return {"product_url": generic_search_url, "image_url": fallback, "active": ""}
 
     async def _search_openfda(self, medicine_name: str) -> str:
         """Try OpenFDA to get official active ingredient name."""
