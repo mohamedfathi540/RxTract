@@ -83,7 +83,7 @@ export function QuotaPanel() {
           icon={<Activity className="w-3.5 h-3.5 text-primary-400" />}
         />
         <Bar
-          label="Scrapes"
+          label="Prescriptions"
           used={quota.prescriptions.used}
           limit={quota.prescriptions.limit}
           icon={<Database className="w-3.5 h-3.5 text-primary-400" />}
