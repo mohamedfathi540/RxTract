@@ -34,7 +34,11 @@ info() {
 }
 
 echo ""
-echo -e "${RED}${BOLD}  ■ Stopping RxTract Development Environment${NC}"
+echo -e "${RED}${BOLD}  ╔═══════════════════════════════════════════════╗${NC}"
+echo -e "${RED}${BOLD}  ║                                               ║${NC}"
+echo -e "${RED}${BOLD}  ║   Stopping RxTract Development Environment    ║${NC}"
+echo -e "${RED}${BOLD}  ║                                               ║${NC}"
+echo -e "${RED}${BOLD}  ╚═══════════════════════════════════════════════╝${NC}"
 echo ""
 
 # ─────────────────────────────────────────────────────────
@@ -125,5 +129,7 @@ rm -f "$PID_DIR"/*.pid 2>/dev/null || true
 success "PID files and logs cleaned"
 
 echo ""
-echo -e "${GREEN}${BOLD}  RxTract stopped. Goodbye!${NC}"
+echo -e "${GREEN}${BOLD}  ╔═══════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}${BOLD}  ║           RxTract stopped. Goodbye!           ║${NC}"
+echo -e "${GREEN}${BOLD}  ╚═══════════════════════════════════════════════╝${NC}"
 echo ""

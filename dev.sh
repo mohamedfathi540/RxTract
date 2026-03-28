@@ -72,7 +72,7 @@ banner() {
     echo "  ║   ██║  ██║██╔╝ ██╗   ██║   ██║  ██║██║  ██║╚██████╗   ██║             ║"
     echo "  ║   ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝   ╚═╝             ║"
     echo "  ║                                                                       ║"
-    echo "  ║                  Development Environment                                ║"
+    echo "  ║                  Development Environment                              ║"
     echo "  ╚═══════════════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
     echo ""
@@ -472,18 +472,33 @@ done
 # ─────────────────────────────────────────────────────────
 # Dashboard
 # ─────────────────────────────────────────────────────────
+# Calculate dynamic padding ensuring exact 47 char inner width
+pad_nginx=$(( 47 - 35 - ${#PORT_NGINX} )); (( pad_nginx < 0 )) && pad_nginx=0
+pad_front=$(( 47 - 35 - ${#PORT_FRONTEND} )); (( pad_front < 0 )) && pad_front=0
+pad_back=$(( 47 - 40 - ${#PORT_BACKEND} )); (( pad_back < 0 )) && pad_back=0
+pad_pg=$(( 47 - 28 - ${#PORT_POSTGRES} )); (( pad_pg < 0 )) && pad_pg=0
+pad_qd=$(( 47 - 35 - ${#PORT_QDRANT} )); (( pad_qd < 0 )) && pad_qd=0
+
+printf -v sp_nginx '%*s' "$pad_nginx" ''
+printf -v sp_front '%*s' "$pad_front" ''
+printf -v sp_back '%*s' "$pad_back" ''
+printf -v sp_pg '%*s' "$pad_pg" ''
+printf -v sp_qd '%*s' "$pad_qd" ''
+
 echo ""
 echo -e "${GREEN}${BOLD}  ╔═══════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}${BOLD}  ║            RxTract is LIVE!                   ║${NC}"
 echo -e "${GREEN}${BOLD}  ╠═══════════════════════════════════════════════╣${NC}"
 echo -e "${GREEN}${BOLD}  ║${NC}                                               ${GREEN}${BOLD}║${NC}"
-echo -e "${GREEN}${BOLD}  ║${NC}  ${CYAN}Nginx Gateway${NC} → ${WHITE}http://localhost:${PORT_NGINX}${NC}       ${GREEN}${BOLD}║${NC}"
-echo -e "${GREEN}${BOLD}  ║${NC}  ${CYAN}Frontend${NC}     → ${WHITE}http://localhost:${PORT_FRONTEND}${NC}       ${GREEN}${BOLD}║${NC}"
-echo -e "${GREEN}${BOLD}  ║${NC}  ${CYAN}Backend API${NC}  → ${WHITE}http://localhost:${PORT_BACKEND}/docs${NC}  ${GREEN}${BOLD}║${NC}"
-echo -e "${GREEN}${BOLD}  ║${NC}  ${CYAN}PostgreSQL${NC}   → ${WHITE}localhost:${PORT_POSTGRES}${NC}             ${GREEN}${BOLD}║${NC}"
-echo -e "${GREEN}${BOLD}  ║${NC}  ${CYAN}Qdrant${NC}       → ${WHITE}http://localhost:${PORT_QDRANT}${NC}       ${GREEN}${BOLD}║${NC}"
+echo -e "${GREEN}${BOLD}  ║${NC}  ${CYAN}Nginx Gateway${NC} → ${WHITE}http://localhost:${PORT_NGINX}${NC}${sp_nginx}${GREEN}${BOLD}║${NC}"
+echo -e "${GREEN}${BOLD}  ║${NC}  ${CYAN}Frontend     ${NC} → ${WHITE}http://localhost:${PORT_FRONTEND}${NC}${sp_front}${GREEN}${BOLD}║${NC}"
+echo -e "${GREEN}${BOLD}  ║${NC}  ${CYAN}Backend API  ${NC} → ${WHITE}http://localhost:${PORT_BACKEND}/docs${NC}${sp_back}${GREEN}${BOLD}║${NC}"
+echo -e "${GREEN}${BOLD}  ║${NC}  ${CYAN}PostgreSQL   ${NC} → ${WHITE}localhost:${PORT_POSTGRES}${NC}${sp_pg}${GREEN}${BOLD}║${NC}"
+echo -e "${GREEN}${BOLD}  ║${NC}  ${CYAN}Qdrant       ${NC} → ${WHITE}http://localhost:${PORT_QDRANT}${NC}${sp_qd}${GREEN}${BOLD}║${NC}"
 if [ -f "$CLOUDFLARED_PID" ]; then
-echo -e "${GREEN}${BOLD}  ║${NC}  ${CYAN}Cloudflare${NC}   → ${WHITE}Tunnel enabled (see logs)${NC}   ${GREEN}${BOLD}║${NC}"
+    pad_cf=$(( 47 - 43 )); (( pad_cf < 0 )) && pad_cf=0
+    printf -v sp_cf '%*s' "$pad_cf" ''
+    echo -e "${GREEN}${BOLD}  ║${NC}  ${CYAN}Cloudflare   ${NC} → ${WHITE}Tunnel enabled (see logs)${NC}${sp_cf}${GREEN}${BOLD}║${NC}"
 fi
 echo -e "${GREEN}${BOLD}  ║${NC}                                               ${GREEN}${BOLD}║${NC}"
 echo -e "${GREEN}${BOLD}  ╚═══════════════════════════════════════════════╝${NC}"
