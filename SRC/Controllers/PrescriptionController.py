@@ -336,17 +336,18 @@ class PrescriptionController(basecontroller):
         
         parsed_url = urlparse(pharmacy_base)
         domain = parsed_url.netloc.lower()
+        base_path = parsed_url.path.rstrip('/')
         
         # Smart fallback URL construction based on standard e-commerce platforms
         if "chefaa." in domain:
-            generic_search_url = f"{parsed_url.scheme}://{domain}/search?q={quote_plus(first_word)}"
+            generic_search_url = f"{parsed_url.scheme}://{domain}{base_path}/products/search?q={quote_plus(first_word)}"
         elif "seif-online." in domain or "elezaby" in domain:
-            generic_search_url = f"{parsed_url.scheme}://{domain}/?s={quote_plus(first_word)}&post_type=product"
+            generic_search_url = f"{parsed_url.scheme}://{domain}{base_path}/?s={quote_plus(first_word)}&post_type=product"
         elif "nahdionline." in domain:
-            generic_search_url = f"{parsed_url.scheme}://{domain}/en/catalogsearch/result/?q={quote_plus(first_word)}"
+            generic_search_url = f"{parsed_url.scheme}://{domain}{base_path}/catalogsearch/result/?q={quote_plus(first_word)}"
         else:
             # General fallback (most modern sites use /search?q=)
-            generic_search_url = f"{parsed_url.scheme}://{domain}/search?q={quote_plus(first_word)}"
+            generic_search_url = f"{parsed_url.scheme}://{domain}{base_path}/search?q={quote_plus(first_word)}"
 
         try:
             async with httpx.AsyncClient(
