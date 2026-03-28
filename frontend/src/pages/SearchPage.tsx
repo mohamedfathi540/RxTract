@@ -5,6 +5,7 @@ import { useSettingsStore } from "../stores/settingsStore";
 import { searchIndex } from "../api/nlp";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { truncateText } from "../utils/helpers";
 import type { SearchResult } from "../api/types";
 
@@ -125,7 +126,7 @@ export function SearchPage() {
                     </p>
                   </div>
                   <button className="ml-4 text-text-muted hover:text-text-primary">
-                    {isExpanded ? "▼" : "▶"}
+                    {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                   </button>
                 </div>
 

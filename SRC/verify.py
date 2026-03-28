@@ -11,18 +11,18 @@ async def check_health():
         async with httpx.AsyncClient() as client:
             response = await client.get(f"{BASE_URL}/api/v1/")
             if response.status_code == 200:
-                print("✅ Health check passed!")
+                print("[OK] Health check passed!")
                 print(f"Response: {response.json()}")
                 return True
             else:
-                print(f"❌ Health check failed with status code: {response.status_code}")
+                print(f"[ERR] Health check failed with status code: {response.status_code}")
                 print(f"Response: {response.text}")
                 return False
     except httpx.ConnectError:
-        print(f"❌ Could not connect to {BASE_URL}. Is the server running?")
+        print(f"[ERR] Could not connect to {BASE_URL}. Is the server running?")
         return False
     except Exception as e:
-        print(f"❌ An error occurred: {e}")
+        print(f"[ERR] An error occurred: {e}")
         return False
 
 async def main():
@@ -30,10 +30,10 @@ async def main():
     health_ok = await check_health()
     
     if health_ok:
-        print("\n🎉 Basic verification passed! The server is running and responsive.")
+        print("\n[OK] Basic verification passed! The server is running and responsive.")
         sys.exit(0)
     else:
-        print("\n⚠️ Verification failed. Please check the logs and ensure the server is running.")
+        print("\n[WARN] Verification failed. Please check the logs and ensure the server is running.")
         sys.exit(1)
 
 if __name__ == "__main__":

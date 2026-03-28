@@ -22,11 +22,11 @@ step() {
 }
 
 success() {
-    echo -e "  ${GREEN}✓${NC} $1"
+    echo -e "  ${GREEN}+${NC} $1"
 }
 
 warn() {
-    echo -e "  ${YELLOW}⚠${NC} $1"
+    echo -e "  ${YELLOW}!${NC} $1"
 }
 
 info() {
@@ -125,5 +125,5 @@ rm -f "$PID_DIR"/*.pid 2>/dev/null || true
 success "PID files and logs cleaned"
 
 echo ""
-echo -e "${GREEN}${BOLD}  ✨ RxTract stopped. Goodbye! ✨${NC}"
+echo -e "${GREEN}${BOLD}  RxTract stopped. Goodbye!${NC}"
 echo ""

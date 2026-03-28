@@ -72,7 +72,7 @@ banner() {
     echo "  ║   ██║  ██║██╔╝ ██╗   ██║   ██║  ██║██║  ██║╚██████╗   ██║             ║"
     echo "  ║   ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝   ╚═╝             ║"
     echo "  ║                                                                       ║"
-    echo "  ║               🔥 Development Environment 🔥                           ║"
+    echo "  ║                  Development Environment                                ║"
     echo "  ╚═══════════════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
     echo ""
@@ -86,15 +86,15 @@ step() {
 }
 
 success() {
-    echo -e "  ${GREEN}✓${NC} $1"
+    echo -e "  ${GREEN}+${NC} $1"
 }
 
 warn() {
-    echo -e "  ${YELLOW}⚠${NC} $1"
+    echo -e "  ${YELLOW}!${NC} $1"
 }
 
 fail() {
-    echo -e "  ${RED}✗${NC} $1"
+    echo -e "  ${RED}x${NC} $1"
 }
 
 info() {
@@ -231,7 +231,7 @@ cleanup() {
     # Clean up logs
     rm -rf "$LOG_DIR" 2>/dev/null || true
 
-    echo -e "\n${GREEN}${BOLD}  ✨ RxTract shut down cleanly. See you! ✨${NC}\n"
+    echo -e "\n${GREEN}${BOLD}  RxTract shut down cleanly. See you!${NC}\n"
     exit 0
 }
 
@@ -474,7 +474,7 @@ done
 # ─────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}${BOLD}  ╔═══════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}${BOLD}  ║         🚀 RxTract is LIVE! 🚀                ║${NC}"
+echo -e "${GREEN}${BOLD}  ║            RxTract is LIVE!                   ║${NC}"
 echo -e "${GREEN}${BOLD}  ╠═══════════════════════════════════════════════╣${NC}"
 echo -e "${GREEN}${BOLD}  ║${NC}                                               ${GREEN}${BOLD}║${NC}"
 echo -e "${GREEN}${BOLD}  ║${NC}  ${CYAN}Nginx Gateway${NC} → ${WHITE}http://localhost:${PORT_NGINX}${NC}       ${GREEN}${BOLD}║${NC}"
@@ -492,7 +492,7 @@ echo ""
 # ─────────────────────────────────────────────────────────
 # Background mode — completely detach and exit
 # ─────────────────────────────────────────────────────────
-echo -e "\n${GREEN}${BOLD}  ✨ RxTract is now running in the background ✨${NC}"
+echo -e "\n${GREEN}${BOLD}  RxTract is now running in the background${NC}"
 echo -e "  ${DIM}Logs:${NC}"
 echo -e "    ${WHITE}Backend  → $LOG_DIR/backend.log${NC}"
 echo -e "    ${WHITE}Frontend → $LOG_DIR/frontend.log${NC}"
@@ -510,5 +510,5 @@ disown -a 2>/dev/null || true
 # Disable the cleanup trap so exiting dev.sh doesn't accidentally kill the processes
 trap - SIGINT SIGTERM
 
-echo -e "${GREEN}${BOLD}  ✅ Setup complete. You can safely close this terminal. ✨${NC}\n"
+echo -e "${GREEN}${BOLD}  Setup complete. You can safely close this terminal.${NC}\n"
 exit 0

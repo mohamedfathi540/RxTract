@@ -23,6 +23,8 @@ import {
     Sparkles,
     HelpCircle,
     ExternalLink,
+    ChevronUp,
+    ChevronDown,
 } from "lucide-react";
 
 /** Convert a File to a data URL so it survives page switches */
@@ -515,8 +517,8 @@ export function PrescriptionPage() {
                         <span className="text-sm font-medium text-text-secondary flex items-center gap-1.5">
                             <StickyNote className="w-4 h-4" /> Raw OCR Text
                         </span>
-                        <span className="text-text-muted text-xs">
-                            {showOcr ? "▲ Hide" : "▼ Show"}
+                        <span className="text-text-muted text-xs flex items-center gap-1">
+                            {showOcr ? <><ChevronUp className="w-3 h-3" /> Hide</> : <><ChevronDown className="w-3 h-3" /> Show</>}
                         </span>
                     </button>
                     {showOcr && (

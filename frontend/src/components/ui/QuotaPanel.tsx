@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useQuotaStore } from "../../stores/quotaStore";
-import { Activity, Database, Zap } from "lucide-react";
+import { Activity, Database, Zap, Infinity as InfinityIcon } from "lucide-react";
 
 interface BarProps {
   label: string;
@@ -37,7 +37,7 @@ function Bar({ label, used, limit, icon }: BarProps) {
         <span className={textColor}>
           <span className="font-bold">{used}</span>
           <span className="opacity-70 mx-0.5">/</span>
-          {isUnlimited ? "∞" : limit}
+          {isUnlimited ? <InfinityIcon className="w-3.5 h-3.5 inline-block" /> : limit}
         </span>
       </div>
       {!isUnlimited && (
