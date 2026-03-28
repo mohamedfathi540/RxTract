@@ -1,8 +1,12 @@
 from abc import ABC, abstractmethod
 from typing import Optional, List, Tuple
+import os
 import re
 import json
 import logging
+
+import cv2
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -136,13 +140,6 @@ class OCRInterface(ABC):
         Returns the path to the cleaned image, or the original on failure.
         """
         try:
-            import cv2
-            import numpy as np
-        except ImportError:
-            logger.warning("opencv-python not installed — skipping image preprocessing")
-            return file_path
-
-        try:
             # 1. Read image directly as grayscale
             gray = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
             if gray is None:
@@ -193,7 +190,6 @@ class OCRInterface(ABC):
                         borderMode=cv2.BORDER_REPLICATE,
                     )
 
-            import os
             dir_name, file_name = os.path.split(file_path)
             output_path = os.path.join(dir_name, f"preprocessed_{file_name}")
             cv2.imwrite(output_path, cleaned)
