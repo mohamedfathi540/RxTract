@@ -323,89 +323,119 @@ class PrescriptionController(basecontroller):
     async def _scrape_medicine_url(self, medicine_name: str) -> dict:
         """
         Search pharmacy API for medicine data if available, else fallback to a search URL.
+        Iterates over a comma-separated list of PHARMACY_BASE_URL values to find the
+        first pharmacy that stocks the given medicine.
         Returns active ingredient, product URL, image URL, and price.
         """
-        pharmacy_base = self.settings.PHARMACY_BASE_URL.rstrip("/")
-        api_url = f"{pharmacy_base}/routing.php"
-        fallback = self._build_google_image_url(medicine_name)
+        from urllib.parse import urlparse
+        from urllib.parse import quote_plus
 
-        # Use the first word (brand name) for a targeted search
+        pharmacy_base_urls = [url.strip() for url in getattr(self.settings, "PHARMACY_BASE_URL", "").split(',') if url.strip()]
+        if not pharmacy_base_urls:
+            pharmacy_base_urls = ["https://dwaprices.com/"]
+
+        fallback_image = self._build_google_image_url(medicine_name)
         first_word = medicine_name.split()[0] if medicine_name else medicine_name
 
-        from urllib.parse import urlparse
-        
-        parsed_url = urlparse(pharmacy_base)
-        domain = parsed_url.netloc.lower()
-        base_path = parsed_url.path.rstrip('/')
-        
-        # Smart fallback URL construction based on standard e-commerce platforms
-        if "chefaa." in domain:
-            generic_search_url = f"{parsed_url.scheme}://{domain}{base_path}/products/search?q={quote_plus(first_word)}"
-        elif "seif-online." in domain or "elezaby" in domain:
-            generic_search_url = f"{parsed_url.scheme}://{domain}{base_path}/?s={quote_plus(first_word)}&post_type=product"
-        elif "nahdionline." in domain:
-            generic_search_url = f"{parsed_url.scheme}://{domain}{base_path}/catalogsearch/result/?q={quote_plus(first_word)}"
-        else:
-            # General fallback (most modern sites use /search?q=)
-            generic_search_url = f"{parsed_url.scheme}://{domain}{base_path}/search?q={quote_plus(first_word)}"
+        # Phrases indicating an empty search result on generic e-commerce platforms
+        NO_RESULTS_PHRASES = getattr(
+            self.settings, 
+            "SCRAPING_NO_RESULTS_PHRASES"
+        )
 
-        try:
-            async with httpx.AsyncClient(
-                timeout=float(getattr(self.settings, "SCRAPING_TIMEOUT", 15)),
-                follow_redirects=True,
-            ) as client:
-                resp = await client.post(
-                    api_url,
-                    data={
-                        "search": "1",
-                        "searchq": first_word,
-                        "order_by": "name ASC",
-                    },
-                    headers={
-                        "User-Agent": getattr(
-                            self.settings,
-                            "SCRAPING_USER_AGENT",
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                        ),
-                    },
-                )
-                if resp.status_code != 200:
-                    logger.debug(
-                        "Pharmacy API returned %d for '%s'",
-                        resp.status_code, first_word,
-                    )
-                    return {"product_url": generic_search_url, "image_url": fallback, "active": ""}
+        async with httpx.AsyncClient(
+            timeout=float(getattr(self.settings, "SCRAPING_TIMEOUT", 15)),
+            follow_redirects=True,
+        ) as client:
+            headers = {
+                "User-Agent": getattr(
+                    self.settings,
+                    "SCRAPING_USER_AGENT",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                ),
+            }
 
-                data = resp.json()
-                results = data.get("data", [])
-                if not results:
-                    return {"product_url": generic_search_url, "image_url": fallback, "active": ""}
+            for pharmacy_base in pharmacy_base_urls:
+                pharmacy_base = pharmacy_base.rstrip("/")
+                parsed_url = urlparse(pharmacy_base)
+                domain = parsed_url.netloc.lower()
+                base_path = parsed_url.path.rstrip('/')
 
-                # Pick the first result (API already filters by search term)
-                hit = results[0]
-                product_id = hit.get("id", "")
-                product_url = f"{pharmacy_base}/med.php?id={product_id}" if product_id else generic_search_url
-                img = hit.get("img", "")
-                image_url = f"{pharmacy_base}/{img}" if img else fallback
-                active = hit.get("active", "")
-                price = hit.get("price", "")
+                # 1. Dwaprices Native JSON API
+                if "dwaprices.com" in domain:
+                    api_url = f"{pharmacy_base}/routing.php"
+                    try:
+                        resp = await client.post(
+                            api_url,
+                            data={"search": "1", "searchq": first_word, "order_by": "name ASC"},
+                            headers=headers,
+                        )
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            results = data.get("data", [])
+                            if results:
+                                hit = results[0]
+                                product_id = hit.get("id", "")
+                                product_url = f"{pharmacy_base}/med.php?id={product_id}" if product_id else ""
+                                img = hit.get("img", "")
+                                image_url = f"{pharmacy_base}/{img}" if img else fallback_image
+                                active = hit.get("active", "")
+                                price = hit.get("price", "")
+                                
+                                logger.info(f"Pharmacy API found '{medicine_name}': product={product_url}")
+                                return {
+                                    "product_url": product_url,
+                                    "image_url": image_url,
+                                    "active": active,
+                                    "price": price,
+                                }
+                    except Exception as e:
+                        logger.debug(f"Pharmacy API failed for '{medicine_name}' on {domain}: {e}")
+                    
+                    continue  # Move to next URL if dwaprices failed
 
-                if product_url:
-                    logger.info(
-                        "Pharmacy API found '%s': product=%s, active=%s, price=%s",
-                        medicine_name, product_url, active, price,
-                    )
+                # 2. Smart fallback URL construction based on standard e-commerce platforms
+                if "chefaa." in domain:
+                    generic_search_url = f"{parsed_url.scheme}://{domain}{base_path}/products/search?q={quote_plus(first_word)}"
+                elif "seif-online." in domain or "elezaby" in domain:
+                    generic_search_url = f"{parsed_url.scheme}://{domain}{base_path}/?s={quote_plus(first_word)}&post_type=product"
+                elif "nahdionline." in domain:
+                    generic_search_url = f"{parsed_url.scheme}://{domain}{base_path}/catalogsearch/result/?q={quote_plus(first_word)}"
+                else:
+                    # General fallback (most modern sites use /search?q=)
+                    generic_search_url = f"{parsed_url.scheme}://{domain}{base_path}/search?q={quote_plus(first_word)}"
 
-                return {
-                    "product_url": product_url,
-                    "image_url": image_url,
-                    "active": active,
-                    "price": price,
-                }
+                # 3. Ping the generic pharmacy URL to verify if the product physically exists in stock
+                try:
+                    resp = await client.get(generic_search_url, headers=headers)
+                    if resp.status_code == 200:
+                        html_lower = resp.text.lower()
+                        # Heuristic Check for "No results" text
+                        if not any(phrase in html_lower for phrase in NO_RESULTS_PHRASES):
+                            # Product highly likely exists! Return this URL
+                            logger.info(f"Verified '{medicine_name}' exists on {domain} via heuristic.")
+                            return {
+                                "product_url": generic_search_url,
+                                "image_url": fallback_image,
+                                "active": "",
+                                "price": "",
+                            }
+                        else:
+                            logger.debug(f"Product '{medicine_name}' not found on {domain} (matched negative heuristic)")
+                    else:
+                        logger.debug(f"Pharmacy {domain} returned HTTP {resp.status_code} for search")
+                except Exception as e:
+                    logger.debug(f"Pharmacy HTTP verification failed for '{medicine_name}' on {domain}: {e}")
 
-        except Exception as e:
-            logger.debug("Pharmacy API failed for '%s': %s", medicine_name, e)
-            return {"product_url": generic_search_url, "image_url": fallback, "active": ""}
+        # 4. Global Fallback if NO pharmacies had the item indexed/found
+        logger.info(f"Medicine '{medicine_name}' was not found on any provided pharmacies in .env list.")
+        global_fallback_url = f"https://www.google.com/search?q={quote_plus(first_word)}+medicine"
+        return {
+            "product_url": global_fallback_url,
+            "image_url": fallback_image,
+            "active": "",
+            "price": "",
+        }
 
     async def _search_openfda(self, medicine_name: str) -> str:
         """Try OpenFDA to get official active ingredient name."""
