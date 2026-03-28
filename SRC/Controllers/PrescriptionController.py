@@ -332,11 +332,9 @@ class PrescriptionController(basecontroller):
         # Use the first word (brand name) for a targeted search
         first_word = medicine_name.split()[0] if medicine_name else medicine_name
         
-        # Extract just the domain for Google site search fallback
-        domain = pharmacy_base.replace("https://", "").replace("http://", "").split("/")[0]
-        
-        # Generic fallback search URL using Google (works for any pharmacy site)
-        generic_search_url = f"https://www.google.com/search?q=site%3A{domain}+{quote_plus(first_word)}"
+        # Generic fallback search URL using Google without domain restriction
+        # Many pharmacies (like Elezaby) only have mobile apps and no web catalog.
+        generic_search_url = f"https://www.google.com/search?q={quote_plus(first_word)}+medicine"
 
         try:
             async with httpx.AsyncClient(
