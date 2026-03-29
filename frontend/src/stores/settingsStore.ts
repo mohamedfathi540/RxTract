@@ -8,6 +8,7 @@ export interface PrescriptionResult {
     signal: string;
     previewDataUrl: string | null;
     projectId: number | null;
+    doctorSpecialty?: string;
 }
 
 interface SettingsState {

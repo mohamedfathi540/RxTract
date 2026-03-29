@@ -126,15 +126,16 @@ class PrescriptionController(basecontroller):
 
         # ── Step 3: Parse OCR response ──────────────────────────────
         await on_progress("extraction", "Parsing medicine data...", 40)
-        medicines_raw, ocr_text = ocr_client.parse_response(raw_response)
+        medicines_raw, ocr_text, doctor_specialty = ocr_client.parse_response(raw_response)
 
         if not ocr_text or not ocr_text.strip():
-            return {"ocr_text": "", "medicines": []}
+            return {"doctor_specialty": "Unknown", "ocr_text": "", "medicines": []}
 
         # ── Step 4: LLM extraction for text-based providers ─────────
+        # Note: doctor_specialty already set by parse_response (vision providers fill it directly)
         if not medicines_raw:
             await on_progress("extraction", "Identifying medicine names...", 45)
-            medicines_raw = await self._llm_extract_medicines(
+            medicines_raw, doctor_specialty = await self._llm_extract_medicines(
                 ocr_text, genration_client
             )
 
@@ -144,26 +145,29 @@ class PrescriptionController(basecontroller):
                 ocr_text
             )
             if not algo_medicines:
-                return {"ocr_text": ocr_text, "medicines": []}
+                return {"doctor_specialty": doctor_specialty, "ocr_text": ocr_text, "medicines": []}
             await on_progress("enrichment", "Looking up active ingredients...", 65)
             medicines = await self._enrich_medicines(algo_medicines)
         else:
             await on_progress("enrichment", "Looking up active ingredients...", 65)
             medicines = await self._enrich_medicines(medicines_raw)
 
-        return {"ocr_text": ocr_text, "medicines": medicines}
+        return {"doctor_specialty": doctor_specialty, "ocr_text": ocr_text, "medicines": medicines}
 
     # =================================================================
     # LLM-based medicine extraction (used by text-based OCR providers)
     # =================================================================
     async def _llm_extract_medicines(
         self, ocr_text: str, genration_client
-    ) -> List[dict]:
-        """Extract medicine names + active ingredients from OCR text."""
+    ) -> tuple[List[dict], str]:
+        """Extract medicine names + active ingredients from OCR text.
+        
+        Returns a tuple of (medicines_list, doctor_specialty).
+        """
         from fastapi.concurrency import run_in_threadpool
 
         if not ocr_text or not ocr_text.strip():
-            return []
+            return [], "Unknown"
 
         prompt = text_extraction_prompt.substitute(
             ocr_text=ocr_text.replace("$", "$$"),
@@ -181,7 +185,7 @@ class PrescriptionController(basecontroller):
 
             if not response:
                 logger.warning("LLM returned empty response")
-                return []
+                return [], "Unknown"
 
             logger.info("Raw LLM response: %s", response)
 
@@ -191,51 +195,58 @@ class PrescriptionController(basecontroller):
                 cleaned = re.sub(r"\s*```$", "", cleaned)
             cleaned = cleaned.strip()
 
-            array_match = re.search(r'\[.*\]', cleaned, re.DOTALL)
-            if array_match:
-                cleaned = array_match.group(0)
+            # Try to parse as a JSON object (new format) first, then fall back to array
+            parsed = json.loads(cleaned)
 
-            medicines = json.loads(cleaned)
-            if isinstance(medicines, list):
-                result = []
-                for m in medicines:
-                    if isinstance(m, dict) and m.get("name"):
-                        active_ing = m.get("active_ingredient")
-                        if active_ing is None:
-                            active_ing = "Unknown"
-                        dosage = m.get("dosage")
-                        if dosage is None:
-                            dosage = "Unknown"
-                        form = m.get("form")
-                        if form is None:
-                            form = "Unknown"
-                        
-                        result.append({
-                            "name": m["name"].strip(),
-                            "active_ingredient": str(active_ing).strip(),
-                            "dosage": str(dosage).strip(),
-                            "form": str(form).strip(),
-                        })
-                    elif isinstance(m, str) and m.strip():
-                        result.append({
-                            "name": m.strip(),
-                            "active_ingredient": "Unknown",
-                            "dosage": "Unknown",
-                            "form": "Unknown",
-                        })
-                logger.info(
-                    "Extracted medicines: %s",
-                    [(m["name"], m["active_ingredient"]) for m in result],
-                )
-                return result
-            return []
+            if isinstance(parsed, dict):
+                extracted_list = parsed.get("medicines", [])
+                doctor_specialty = parsed.get("doctor_specialty", "Unknown") or "Unknown"
+            elif isinstance(parsed, list):
+                # Legacy array format — no specialty
+                extracted_list = parsed
+                doctor_specialty = "Unknown"
+            else:
+                return [], "Unknown"
+
+            result = []
+            for m in extracted_list:
+                if isinstance(m, dict) and m.get("name"):
+                    active_ing = m.get("active_ingredient") or "Unknown"
+                    dosage = m.get("dosage") or "Unknown"
+                    form = m.get("form") or "Unknown"
+                    llm_candidates = m.get("candidates", []) or []
+                    # Filter to plain strings only
+                    llm_candidates = [c for c in llm_candidates if isinstance(c, str) and c.strip()]
+
+                    result.append({
+                        "name": m["name"].strip(),
+                        "active_ingredient": str(active_ing).strip(),
+                        "dosage": str(dosage).strip(),
+                        "form": str(form).strip(),
+                        "llm_candidates": llm_candidates,
+                    })
+                elif isinstance(m, str) and m.strip():
+                    result.append({
+                        "name": m.strip(),
+                        "active_ingredient": "Unknown",
+                        "dosage": "Unknown",
+                        "form": "Unknown",
+                        "llm_candidates": [],
+                    })
+
+            logger.info(
+                "Extracted medicines: %s (specialty: %s)",
+                [(m["name"], m["active_ingredient"]) for m in result],
+                doctor_specialty,
+            )
+            return result, doctor_specialty
 
         except json.JSONDecodeError as e:
             logger.error("Failed to parse LLM JSON: %s", e)
-            return []
+            return [], "Unknown"
         except Exception as e:
             logger.error("Medicine extraction error: %s", e)
-            return []
+            return [], "Unknown"
 
     # =================================================================
     # Enrichment: OpenFDA + Google Image URLs
@@ -282,11 +293,29 @@ class PrescriptionController(basecontroller):
                     active = local_active
                     logger.info("Local Matcher enhanced '%s': %s", name, active)
 
-            # 4. Candidate suggestions when ingredient remains unknown
+            # 4. Candidate suggestions
             candidates_data = []
-            if active.lower() == "unknown":
-                candidate_names = self.medicine_matcher.get_candidates(name, limit=3)
-                for cand_name in candidate_names:
+            llm_candidates = med.get("llm_candidates", []) or []
+
+            # Try LLM specialty-aware candidates first; they are more contextually relevant.
+            # If LLM provided none (or they are all filtered out as identity matches),
+            # fall back to fuzzy string matching whenever the active ingredient is still unknown.
+            for cand_name in llm_candidates:
+                if isinstance(cand_name, str) and cand_name.strip() and cand_name.lower() != name.lower():
+                    c_scraped = await self._scrape_medicine_url(cand_name)
+                    candidates_data.append({
+                        "name": cand_name,
+                        "product_url": c_scraped.get("product_url", ""),
+                        "image_url": c_scraped.get(
+                            "image_url",
+                            self._build_google_image_url(cand_name),
+                        ),
+                    })
+
+            # Fuzzy fallback: always run when ingredient is unknown AND LLM gave nothing useful
+            if not candidates_data and active.lower() == "unknown":
+                fuzzy_names = self.medicine_matcher.get_candidates(name, limit=3)
+                for cand_name in fuzzy_names:
                     if cand_name.lower() != name.lower():
                         c_scraped = await self._scrape_medicine_url(cand_name)
                         candidates_data.append({

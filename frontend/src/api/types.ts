@@ -107,6 +107,7 @@ export interface MedicineInfo {
 
 export interface PrescriptionResponse {
     signal: string;
+    doctor_specialty?: string;
     ocr_text: string;
     medicines: MedicineInfo[];
     project_id: number | null;

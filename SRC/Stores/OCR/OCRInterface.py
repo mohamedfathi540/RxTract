@@ -34,22 +34,25 @@ class OCRInterface(ABC):
         """
         pass
 
-    def parse_response(self, raw_response: str) -> Tuple[List[dict], str]:
+    def parse_response(self, raw_response: str) -> Tuple[List[dict], str, str]:
         """
-        Parse the raw OCR output into (medicines_raw, ocr_text).
+        Parse the raw OCR output into (medicines_raw, ocr_text, doctor_specialty).
 
-        Text-based providers  → ([], raw_text)  — LLM extraction needed.
-        Vision providers      → (medicines, ocr_text) parsed from JSON.
+        Text-based providers  → ([], raw_text, 'Unknown')  — LLM extraction needed.
+        Vision providers      → (medicines, ocr_text, specialty) parsed from JSON.
         """
         if not raw_response:
-            return [], ""
+            return [], "", "Unknown"
         if not self.is_vision_provider:
-            return [], raw_response
+            return [], raw_response, "Unknown"
         return self._parse_vision_json(raw_response)
 
     @staticmethod
-    def _parse_vision_json(text: str) -> Tuple[List[dict], str]:
-        """Parse the JSON response from a vision OCR provider."""
+    def _parse_vision_json(text: str) -> Tuple[List[dict], str, str]:
+        """Parse the JSON response from a vision OCR provider.
+        
+        Returns (medicines, ocr_text, doctor_specialty).
+        """
         text = text.strip()
         if text.startswith("```"):
             text = re.sub(r"^```(?:json)?\s*", "", text)
@@ -59,10 +62,13 @@ class OCRInterface(ABC):
         try:
             data = json.loads(text)
             ocr_text = data.get("ocr_text", "")
+            doctor_specialty = data.get("doctor_specialty", "Unknown") or "Unknown"
             medicines = []
 
             for m in data.get("medicines", []):
                 if isinstance(m, dict) and m.get("name"):
+                    llm_candidates = m.get("candidates", []) or []
+                    llm_candidates = [c for c in llm_candidates if isinstance(c, str) and c.strip()]
                     medicines.append({
                         "name": m["name"].strip(),
                         "active_ingredient": m.get(
@@ -70,15 +76,17 @@ class OCRInterface(ABC):
                         ).strip(),
                         "dosage": m.get("dosage", "Unknown").strip() if m.get("dosage") else "Unknown",
                         "form": m.get("form", "Unknown").strip() if m.get("form") else "Unknown",
+                        "llm_candidates": llm_candidates,
                     })
 
             logger.info(
-                "Vision OCR extracted %d medicines: %s",
+                "Vision OCR extracted %d medicines (specialty: %s): %s",
                 len(medicines),
+                doctor_specialty,
                 [(m["name"], m["active_ingredient"]) for m in medicines],
             )
             logger.info("Vision OCR text:\n%s", ocr_text)
-            return medicines, ocr_text
+            return medicines, ocr_text, doctor_specialty
 
         except json.JSONDecodeError as e:
             logger.error("Failed to parse vision OCR response: %s", e)
@@ -116,6 +124,7 @@ class OCRInterface(ABC):
                         "active_ingredient": ai,
                         "dosage": dosage,
                         "form": form,
+                        "llm_candidates": [],
                     })
 
             if ocr_text or medicines:
@@ -123,7 +132,7 @@ class OCRInterface(ABC):
                     "Salvaged from truncated response: ocr_text(len=%d), %d medicines",
                     len(ocr_text), len(medicines),
                 )
-            return medicines, ocr_text
+            return medicines, ocr_text, "Unknown"
 
     def preprocess_image(self, file_path: str) -> str:
         """
