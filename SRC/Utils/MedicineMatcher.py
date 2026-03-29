@@ -171,8 +171,12 @@ class MedicineMatcher:
             # Strategy 2: partial_ratio (handles substring matches, e.g., "Augmant" in "Augmentin")
             result2 = process.extractOne(q_clean or query, self.medicines, scorer=fuzz.partial_ratio)
             if result2 and len(result2) >= 2 and result2[1] >= 80:
-                logger.info(f"Fuzzy Match (partial): '{query}' -> '{result2[0]}' (Score: {result2[1]})")
-                return self.medicine_map.get(result2[0].lower(), result2[0])
+                # Security: prevent matching ridiculously short strings inside the query (e.g. "LL" inside "Mollyle")
+                matched_len = len(result2[0])
+                query_len = len(q_clean or query)
+                if matched_len >= max(4, query_len * 0.4):
+                    logger.info(f"Fuzzy Match (partial): '{query}' -> '{result2[0]}' (Score: {result2[1]})")
+                    return self.medicine_map.get(result2[0].lower(), result2[0])
             
             # Strategy 3: ratio on first word only (handles "Augmantin tab" -> "Augmentin")
             if first_word and len(first_word) >= 4:

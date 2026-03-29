@@ -303,30 +303,34 @@ class PrescriptionController(basecontroller):
 
             # 4. Candidate suggestions
             candidates_data = []
-            seen_cands = set()
             
-            async def add_cand(cand_name: str):
-                if isinstance(cand_name, str) and cand_name.strip() and cand_name.lower() != name.lower() and cand_name.lower() not in seen_cands:
-                    seen_cands.add(cand_name.lower())
-                    c_scraped = await self._scrape_medicine_url(cand_name)
-                    candidates_data.append({
-                        "name": cand_name,
-                        "product_url": c_scraped.get("product_url", ""),
-                        "image_url": c_scraped.get(
-                            "image_url",
-                            self._build_google_image_url(cand_name),
-                        ),
-                    })
-                    
-            # Always pull exact validated DB fuzzy candidates FIRST
-            fuzzy_names = self.medicine_matcher.get_candidates(name, limit=3)
-            for cand_name in fuzzy_names:
-                await add_cand(cand_name)
+            # Only generate alternatives if we are NOT fully confident in the OCR result
+            is_exact_match = name.lower() in self.medicine_matcher.medicine_map
+            if not is_exact_match or active.lower() == "unknown":
+                seen_cands = set()
+                
+                async def add_cand(cand_name: str):
+                    if isinstance(cand_name, str) and cand_name.strip() and cand_name.lower() != name.lower() and cand_name.lower() not in seen_cands:
+                        seen_cands.add(cand_name.lower())
+                        c_scraped = await self._scrape_medicine_url(cand_name)
+                        candidates_data.append({
+                            "name": cand_name,
+                            "product_url": c_scraped.get("product_url", ""),
+                            "image_url": c_scraped.get(
+                                "image_url",
+                                self._build_google_image_url(cand_name),
+                            ),
+                        })
+                        
+                # Pull exact validated DB fuzzy candidates FIRST
+                fuzzy_names = self.medicine_matcher.get_candidates(name, limit=3)
+                for cand_name in fuzzy_names:
+                    await add_cand(cand_name)
 
-            # Mix in LLM context-aware candidates if any
-            llm_candidates = med.get("llm_candidates", []) or []
-            for cand_name in llm_candidates:
-                await add_cand(cand_name)
+                # Mix in LLM context-aware candidates if any
+                llm_candidates = med.get("llm_candidates", []) or []
+                for cand_name in llm_candidates:
+                    await add_cand(cand_name)
 
             return {
                 "name": name,
