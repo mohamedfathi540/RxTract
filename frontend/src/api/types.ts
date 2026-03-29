@@ -148,3 +148,16 @@ export interface QuotaStatusResponse {
     queries: QuotaUsage;
     prescriptions: QuotaUsage;
 }
+
+// Medicine Search Types
+
+export interface SearchMedicineResult {
+    trade_name: string;
+    active_ingredient: string;
+    image_url: string;
+    product_url: string;
+}
+
+export interface SearchMedicineResponse {
+    results: SearchMedicineResult[];
+}

@@ -57,86 +57,70 @@ class MedicineMatcher:
         return False
 
     def _load_data(self):
-        """Load medicines from CSVs and fallback list."""
+        """Load medicines from the PostgreSQL database."""
+        from Helpers.Config import get_settings
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from Models.DB_Schemes.minirag.Schemes.Medicine import Medicine
         
-        # 1. Load from Primary CSV (Pharmacy_Products.csv)
-        # Using relative path assuming this file is in SRC/Utils
-        csv_path = os.path.join(
-            os.path.dirname(__file__), 
-            "../Assets/Files/1/Pharmacy_Products.csv"
-        )
-        csv_path = os.path.abspath(csv_path)
-
-        count = 0
-        if os.path.exists(csv_path):
-            try:
-                with open(csv_path, mode='r', encoding='utf-8') as f:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        name = row.get("name")
-                        if name:
-                            name = name.strip()
-                            if self._add_medicine(name):
-                                count += 1
-                            
-                            # Add first word as candidate for better matching
-                            first_word = name.split()[0]
-                            clean_first = "".join(filter(str.isalnum, first_word))
-                            if len(clean_first) > 3:
-                                if clean_first.lower() not in self.medicine_map:
-                                    self._add_medicine(clean_first)
-                                    self.medicine_map[clean_first.lower()] = name # Map back to full name
-                logger.info(f"Loaded {count} medicines from Pharmacy_Products.csv")
-            except Exception as e:
-                logger.error(f"Failed to load {csv_path}: {e}")
-        else:
-            logger.warning(f"Pharmacy_Products.csv not found at {csv_path}")
-
-        # 2. Load from Scraped CSV (eda_medicines.csv) if exists
-        eda_path = os.path.join(
-            os.path.dirname(__file__),
-            "../Assets/Files/eda_medicines.csv"
-        )
-        eda_path = os.path.abspath(eda_path)
-
-        if os.path.exists(eda_path):
-            try:
-                eda_count = 0
-                with open(eda_path, mode='r', encoding='utf-8') as f:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        # Assumes 'Trade Name' or 'name' column
-                        name = row.get("Trade Name") or row.get("name")
-                        if name:
-                            name = name.strip()
-                            if self._add_medicine(name):
-                                eda_count += 1
-                logger.info(f"Loaded {eda_count} medicines from eda_medicines.csv")
-            except Exception as e:
-                logger.error(f"Failed to load {eda_path}: {e}")
-
-        # 3. Fallback List (Hardcoded commonly used)
-        fallback_list = [
-            "Augmentin", "Moxclav", "Megamox", "Hibiotic",
-            "Phenadon", "Phinex", "Rhinex",
-            "Cataflam", "Voltaren",
-            "Antinal",
-            "Kongestal", "Comtrex",
-            "Panadol", "Brufen",
-            "Flagyl", "Amrizole",
-            "Nexium", "Omeprazole",
-            "Ciprocin", "Xithrone",
-            "Glucophage", "Concor",
-            "Ventolin",
-            "Amaryl", "Symbicort", "Prednisolone", "Aspocid"
-        ]
+        # Build connection string
+        app_settings = get_settings()
+        db_url = f"postgresql://{app_settings.POSTGRES_USER}:{app_settings.POSTGRES_PASSWORD}@{app_settings.POSTGRES_HOST}:{app_settings.POSTGRES_PORT}/{app_settings.POSTGRES_MAIN_DB}"
+        engine = create_engine(db_url)
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
         
-        fallback_count = 0
-        for name in fallback_list:
-            if self._add_medicine(name):
-                fallback_count += 1
-        
-        logger.info(f"MedicineMatcher initialized with {len(self.medicines)} total unique medicines.")
+        session = SessionLocal()
+        try:
+            # Load all trade names and active ingredients from DB
+            medicines = session.query(Medicine.trade_name, Medicine.active_ingredient).all()
+            
+            count = 0
+            for med in medicines:
+                name = med.trade_name.strip()
+                if not name:
+                    continue
+                    
+                if self._add_medicine(name):
+                    count += 1
+                    
+                # Store the active ingredient directly mapping from DB
+                if med.active_ingredient and med.active_ingredient != "Unknown":
+                    self.register_ingredient(name, med.active_ingredient)
+                    
+                # Add first word as candidate for better matching
+                first_word = name.split()[0]
+                clean_first = "".join(filter(str.isalnum, first_word))
+                if len(clean_first) > 3:
+                    if clean_first.lower() not in self.medicine_map:
+                        self._add_medicine(clean_first)
+                        self.medicine_map[clean_first.lower()] = name # Map back to full name
+            
+            # 3. Fallback List (Hardcoded commonly used)
+            fallback_list = [
+                "Augmentin", "Moxclav", "Megamox", "Hibiotic",
+                "Phenadon", "Phinex", "Rhinex",
+                "Cataflam", "Voltaren",
+                "Antinal",
+                "Kongestal", "Comtrex",
+                "Panadol", "Brufen",
+                "Flagyl", "Amrizole",
+                "Nexium", "Omeprazole",
+                "Ciprocin", "Xithrone",
+                "Glucophage", "Concor",
+                "Ventolin",
+                "Amaryl", "Symbicort", "Prednisolone", "Aspocid"
+            ]
+            
+            fallback_count = 0
+            for name in fallback_list:
+                if self._add_medicine(name):
+                    fallback_count += 1
+            
+            logger.info(f"Loaded {count} medicines from PostgreSQL. MedicineMatcher initialized with {len(self.medicines)} total unique medicines.")
+        except Exception as e:
+            logger.error(f"Failed to load medicines from DB: {e}")
+        finally:
+            session.close()
 
     def get_active_ingredient(self, name: str) -> Optional[str]:
         """Get the active ingredient for a known brand name."""
@@ -205,31 +189,43 @@ class MedicineMatcher:
     def get_candidates(self, query: str, limit: int = 3) -> List[str]:
         """
         Return the top *limit* closest medicine-name candidates for *query*.
-
-        Uses ``thefuzz.process.extract`` with ``token_set_ratio`` and a
-        generous threshold (≥ 50) so the user can choose the right match
-        when exact/high-confidence matching fails.
+        Uses direct substring matching plus fuzzy token_set_ratio.
         """
-        if not query or len(query) < 3:
+        if not query or len(query) < 2:
             return []
 
         q_clean = re.sub(
             r'\s*\d+\s*(mg|gm|g|ml|mcg|iu|%|units?).*$',
             '', query.lower(),
         ).strip()
+        
+        q_target = q_clean or query.lower()
 
         try:
+            # 1. Substring matching (matches anywhere in the full string)
+            substring_matches = []
+            for med in self.medicines:
+                if q_target in med.lower():
+                    canonical = self.medicine_map.get(med.lower(), med)
+                    if canonical not in substring_matches:
+                        substring_matches.append(canonical)
+                        
+            # 2. Fuzzy fallback matching
             results = process.extract(
-                q_clean or query, self.medicines,
-                scorer=fuzz.token_set_ratio, limit=limit,
+                q_target, self.medicines,
+                scorer=fuzz.token_set_ratio, limit=limit * 2,
             )
-            candidates = []
+            
+            # Combine them, keeping substring matches at the top priority
+            candidates = list(substring_matches)
             for res_tuple in results:
                 name, score = res_tuple[0], res_tuple[1]
                 if score >= 50:
                     canonical = self.medicine_map.get(name.lower(), name)
-                    candidates.append(canonical)
-            return candidates
+                    if canonical not in candidates:
+                        candidates.append(canonical)
+                        
+            return candidates[:limit]
         except Exception as e:
             logger.error("Candidate match error for '%s': %s", query, e)
             return []

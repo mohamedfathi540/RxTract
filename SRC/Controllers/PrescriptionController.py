@@ -259,7 +259,15 @@ class PrescriptionController(basecontroller):
         async def enrich(med: dict) -> dict:
             original_name = med["name"]
             name = original_name
-            active = med["active_ingredient"]
+            
+            # --- PostgreSQL Auto-Correction ---
+            # Correct the name immediately using DB fuzzy match before relying on external APIs
+            corrected_name = self.medicine_matcher.find_best_match(name)
+            if corrected_name and corrected_name.lower() != name.lower():
+                logger.info("Local Matcher corrected OCR name '%s' -> '%s'", name, corrected_name)
+                name = corrected_name
+
+            active = med.get("active_ingredient", "Unknown")
             dosage = med.get("dosage", "Unknown")
             form = med.get("form", "Unknown")
 
@@ -295,13 +303,11 @@ class PrescriptionController(basecontroller):
 
             # 4. Candidate suggestions
             candidates_data = []
-            llm_candidates = med.get("llm_candidates", []) or []
-
-            # Try LLM specialty-aware candidates first; they are more contextually relevant.
-            # If LLM provided none (or they are all filtered out as identity matches),
-            # fall back to fuzzy string matching whenever the active ingredient is still unknown.
-            for cand_name in llm_candidates:
-                if isinstance(cand_name, str) and cand_name.strip() and cand_name.lower() != name.lower():
+            seen_cands = set()
+            
+            async def add_cand(cand_name: str):
+                if isinstance(cand_name, str) and cand_name.strip() and cand_name.lower() != name.lower() and cand_name.lower() not in seen_cands:
+                    seen_cands.add(cand_name.lower())
                     c_scraped = await self._scrape_medicine_url(cand_name)
                     candidates_data.append({
                         "name": cand_name,
@@ -311,24 +317,20 @@ class PrescriptionController(basecontroller):
                             self._build_google_image_url(cand_name),
                         ),
                     })
+                    
+            # Always pull exact validated DB fuzzy candidates FIRST
+            fuzzy_names = self.medicine_matcher.get_candidates(name, limit=3)
+            for cand_name in fuzzy_names:
+                await add_cand(cand_name)
 
-            # Fuzzy fallback: always run when ingredient is unknown AND LLM gave nothing useful
-            if not candidates_data and active.lower() == "unknown":
-                fuzzy_names = self.medicine_matcher.get_candidates(name, limit=3)
-                for cand_name in fuzzy_names:
-                    if cand_name.lower() != name.lower():
-                        c_scraped = await self._scrape_medicine_url(cand_name)
-                        candidates_data.append({
-                            "name": cand_name,
-                            "product_url": c_scraped.get("product_url", ""),
-                            "image_url": c_scraped.get(
-                                "image_url",
-                                self._build_google_image_url(cand_name),
-                            ),
-                        })
+            # Mix in LLM context-aware candidates if any
+            llm_candidates = med.get("llm_candidates", []) or []
+            for cand_name in llm_candidates:
+                await add_cand(cand_name)
 
             return {
-                "name": original_name,
+                "name": name,
+                "original_name": original_name,
                 "active_ingredient": active,
                 "dosage": dosage,
                 "form": form,
