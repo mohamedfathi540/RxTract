@@ -10,7 +10,7 @@
 |------|-------|-------------|
 | Chat | `/` | RAG Q&A -- ask questions and get AI-generated answers grounded in your indexed documents |
 | Search | `/search` | Semantic search across all indexed documents with relevance scoring |
-| Prescription Analysis | `/prescription` | Upload prescription images, get real-time OCR analysis with medicine matching via SSE streaming, then chat about results |
+| Prescription Analysis | `/prescription` | Upload prescription images, get real-time OCR analysis with OpenCV image preprocessing and intelligent medicine candidate suggestions via SSE streaming, then chat about results |
 | Login | `/login` | JWT-based authentication |
 | Register | `/register` | Account creation with email verification |
 | Verify Email | `/verify-email` | Email verification flow |

@@ -12,7 +12,7 @@
 - **Image preprocessing**: Automatic denoising, binarization, and deskew via OpenCV before OCR
 - **Intelligent medicine extraction**: LLM-based extraction with algorithmic fallback
 - **Real-time progress**: Server-Sent Events (SSE) stream each pipeline step to the UI
-- **EDA medicine matching**: Fuzzy-matches extracted medicines against the Egyptian Drug Authority database (~40,000+ products) and suggests real alternatives with pricing
+- **EDA medicine matching**: Fuzzy-matches extracted medicines against the Egyptian Drug Authority database (~40,000+ products), suggests real alternatives with pricing, and provides intelligent candidate suggestions for unrecognized medicines
 - **Auto-index into RAG**: Each analyzed prescription is automatically indexed so users can ask follow-up questions via chat
 - **End-to-end pipeline**: OCR > Extraction > Enrichment > Database Matching > RAG Indexing > Response
 
@@ -276,9 +276,10 @@ Each step streams real-time progress via SSE:
 
 | Step | Description |
 |------|-------------|
-| OCR | Preprocesses image and extracts raw text using the configured vision provider |
+| Preprocessing | Advanced image enhancement via OpenCV (denoising, binarization, deskew) |
+| OCR | Extracts raw text using the configured vision provider |
 | Extraction | LLM identifies medicine names, dosages, and forms (with algorithmic fallback) |
-| Enrichment | Cross-references extracted medicines with the EDA database (~40,000+ products) |
+| Enrichment | Cross-references extracted medicines with the EDA database (~40,000+ products). Evaluates alternatives and provides candidate suggestions ("Did you mean?") for unrecognized or ambiguous medicines. |
 | Indexing | Auto-indexes results into a new RAG project for follow-up chat |
 | Response | Returns structured results with real alternatives and pricing |
 
