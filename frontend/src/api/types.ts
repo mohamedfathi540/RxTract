@@ -107,6 +107,7 @@ export interface MedicineInfo {
 
 export interface PrescriptionResponse {
     signal: string;
+    doctor_specialty?: string;
     ocr_text: string;
     medicines: MedicineInfo[];
     project_id: number | null;
@@ -146,4 +147,17 @@ export interface QuotaStatusResponse {
     date: string;
     queries: QuotaUsage;
     prescriptions: QuotaUsage;
+}
+
+// Medicine Search Types
+
+export interface SearchMedicineResult {
+    trade_name: string;
+    active_ingredient: string;
+    image_url: string;
+    product_url: string;
+}
+
+export interface SearchMedicineResponse {
+    results: SearchMedicineResult[];
 }

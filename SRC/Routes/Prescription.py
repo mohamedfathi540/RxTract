@@ -83,12 +83,14 @@ async def analyze_prescription(request: Request, file: UploadFile,
 
         medicines = result.get("medicines", [])
         ocr_text = result.get("ocr_text", "")
+        doctor_specialty = result.get("doctor_specialty", "Unknown")
 
         if not medicines:
             signal = ResponseSignal.PRESCRIPTION_NO_MEDICINES_FOUND.value
             return JSONResponse(
                 content={
                     "signal": signal,
+                    "doctor_specialty": doctor_specialty,
                     "ocr_text": ocr_text,
                     "medicines": [],
                     "project_id": None,
@@ -178,6 +180,7 @@ async def analyze_prescription(request: Request, file: UploadFile,
         return JSONResponse(
             content={
                 "signal": ResponseSignal.PRESCRIPTION_ANALYZED.value,
+                "doctor_specialty": doctor_specialty,
                 "ocr_text": ocr_text,
                 "medicines": medicines,
                 "project_id": pid,
@@ -272,11 +275,13 @@ async def analyze_prescription_stream(request: Request, file: UploadFile,
 
             medicines = result.get("medicines", [])
             ocr_text = result.get("ocr_text", "")
+            doctor_specialty = result.get("doctor_specialty", "Unknown")
 
             if not medicines:
                 signal = ResponseSignal.PRESCRIPTION_NO_MEDICINES_FOUND.value
                 yield result_event({
                     "signal": signal,
+                    "doctor_specialty": doctor_specialty,
                     "ocr_text": ocr_text,
                     "medicines": [],
                     "project_id": None,
@@ -365,6 +370,7 @@ async def analyze_prescription_stream(request: Request, file: UploadFile,
             yield progress_event("complete", "Analysis complete!", 100)
             yield result_event({
                 "signal": ResponseSignal.PRESCRIPTION_ANALYZED.value,
+                "doctor_specialty": doctor_specialty,
                 "ocr_text": ocr_text,
                 "medicines": medicines,
                 "project_id": pid,

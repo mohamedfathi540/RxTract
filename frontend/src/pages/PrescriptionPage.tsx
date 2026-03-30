@@ -23,6 +23,9 @@ import {
     Sparkles,
     HelpCircle,
     ExternalLink,
+    ChevronUp,
+    ChevronDown,
+    Stethoscope,
 } from "lucide-react";
 
 /** Convert a File to a data URL so it survives page switches */
@@ -67,6 +70,9 @@ export function PrescriptionPage() {
     const [showOcr, setShowOcr] = useState(false);
     const [signal, setSignal] = useState<string>(
         prescriptionResult?.signal ?? ""
+    );
+    const [doctorSpecialty, setDoctorSpecialty] = useState<string>(
+        prescriptionResult?.doctorSpecialty ?? "Unknown"
     );
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -114,10 +120,12 @@ export function PrescriptionPage() {
                 const newMedicines = result.medicines || [];
                 const newSignal = result.signal || "";
                 const newProjectId = result.project_id ?? null;
+                const newDoctorSpecialty = result.doctor_specialty || "Unknown";
 
                 setOcrText(newOcrText);
                 setMedicines(newMedicines);
                 setSignal(newSignal);
+                setDoctorSpecialty(newDoctorSpecialty);
                 setIsAnalyzing(false);
 
                 setPrescriptionResult({
@@ -126,6 +134,7 @@ export function PrescriptionPage() {
                     signal: newSignal,
                     previewDataUrl: previewUrl,
                     projectId: newProjectId,
+                    doctorSpecialty: newDoctorSpecialty,
                 });
             },
             // onError
@@ -149,6 +158,7 @@ export function PrescriptionPage() {
         setOcrText("");
         setError(null);
         setSignal("");
+        setDoctorSpecialty("Unknown");
         setShowOcr(false);
         setIsAnalyzing(false);
         setCurrentStep("");
@@ -384,6 +394,23 @@ export function PrescriptionPage() {
                         </div>
                     </div>
 
+                    {/* Doctor Specialty Badge */}
+                    {doctorSpecialty && doctorSpecialty !== "Unknown" && (
+                        <div className="flex items-center gap-3 px-4 py-3 bg-blue-500/10 border border-blue-500/30 rounded-xl">
+                            <div className="p-2 bg-blue-500/20 rounded-lg shrink-0">
+                                <Stethoscope className="w-5 h-5 text-blue-400" />
+                            </div>
+                            <div>
+                                <p className="text-xs font-medium text-blue-300 uppercase tracking-wider">
+                                    Detected Context
+                                </p>
+                                <p className="text-sm font-bold text-blue-400">
+                                    {doctorSpecialty} Prescription
+                                </p>
+                            </div>
+                        </div>
+                    )}
+
                     <div className="grid gap-4">
                         {medicines.map((med, idx) => (
                             <div
@@ -515,8 +542,8 @@ export function PrescriptionPage() {
                         <span className="text-sm font-medium text-text-secondary flex items-center gap-1.5">
                             <StickyNote className="w-4 h-4" /> Raw OCR Text
                         </span>
-                        <span className="text-text-muted text-xs">
-                            {showOcr ? "▲ Hide" : "▼ Show"}
+                        <span className="text-text-muted text-xs flex items-center gap-1">
+                            {showOcr ? <><ChevronUp className="w-3 h-3" /> Hide</> : <><ChevronDown className="w-3 h-3" /> Show</>}
                         </span>
                     </button>
                     {showOcr && (

@@ -73,6 +73,12 @@ class settings (BaseSettings):
     SCRAPING_USE_BROWSER : int = 1
     SCRAPING_CONCURRENCY : int = 1
     SCRAPING_IGNORE_ROBOTS : int = 1
+    SCRAPING_NO_RESULTS_PHRASES : list = [
+        '0 results', 'no product', 'no result', 'not found',
+        'we couldn\'t find', 'we could not find', 'unable to find',
+        'لم يتم العثور', 'لا توجد نتائج', 'عفوا', 'sorry, we can\'t find',
+        'no products were found', 'no matching records found', 'we searched really hard',
+    ]
 
     # Pharmacy product search (for medicine URL scraping)
     PHARMACY_BASE_URL : str = "https://dwaprices.com/"

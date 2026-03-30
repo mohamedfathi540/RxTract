@@ -1,41 +1,50 @@
 import { useEffect } from "react";
 import { useQuotaStore } from "../../stores/quotaStore";
-import type { QuotaUsage } from "../../api/types";
+import { Activity, Database, Zap, Infinity as InfinityIcon } from "lucide-react";
 
-function Bar({ label, usage }: { label: string; usage: QuotaUsage }) {
-  const isUnlimited = usage.limit <= 0;
-  const pct = isUnlimited ? 0 : Math.min((usage.used / usage.limit) * 100, 100);
+interface BarProps {
+  label: string;
+  used: number;
+  limit: number;
+  icon?: React.ReactNode;
+}
+
+function Bar({ label, used, limit, icon }: BarProps) {
+  const isUnlimited = limit <= 0;
+  const pct = isUnlimited ? 0 : Math.min((used / limit) * 100, 100);
   const isHigh = pct >= 80;
   const isExhausted = pct >= 100;
 
+  const barColor = isExhausted
+    ? "bg-error"
+    : isHigh
+      ? "bg-warning"
+      : "bg-primary-500";
+
+  const textColor = isExhausted
+    ? "text-error"
+    : isHigh
+      ? "text-warning"
+      : "text-text-muted";
+
   return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between text-[11px]">
-        <span className="text-text-muted">{label}</span>
-        <span
-          className={
-            isExhausted
-              ? "text-error font-medium"
-              : isHigh
-                ? "text-warning"
-                : "text-text-secondary"
-          }
-        >
-          {isUnlimited
-            ? `${usage.used} / ∞`
-            : `${usage.used} / ${usage.limit}`}
+    <div className="space-y-1.5 py-1">
+      <div className="flex justify-between items-end text-xs">
+        <div className="flex items-center gap-1.5 text-text-primary font-medium">
+          {icon}
+          <span>{label}</span>
+        </div>
+        <span className={textColor}>
+          <span className="font-bold">{used}</span>
+          <span className="opacity-70 mx-0.5">/</span>
+          {isUnlimited ? <InfinityIcon className="w-3.5 h-3.5 inline-block" /> : limit}
         </span>
       </div>
       {!isUnlimited && (
-        <div className="h-1 rounded-full bg-border overflow-hidden">
+        <div className="h-2 w-full bg-bg-tertiary rounded-full overflow-hidden shadow-inner relative">
           <div
-            className={`h-full rounded-full transition-all duration-300 ${
-              isExhausted
-                ? "bg-error"
-                : isHigh
-                  ? "bg-warning"
-                  : "bg-primary-500"
-            }`}
+            className={`absolute top-0 left-0 h-full rounded-full transition-all duration-1000 ease-in-out ${barColor} ${isExhausted ? "animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.5)]" : ""
+              }`}
             style={{ width: `${pct}%` }}
           />
         </div>
@@ -58,12 +67,28 @@ export function QuotaPanel() {
   if (!quota) return null;
 
   return (
-    <div className="space-y-2 px-1">
-      <p className="text-[10px] font-medium uppercase tracking-wider text-text-muted">
-        Daily Usage
-      </p>
-      <Bar label="Queries" usage={quota.queries} />
-      <Bar label="Prescriptions" usage={quota.prescriptions} />
+    <div className="px-3 py-3 rounded-lg bg-bg-primary border border-border space-y-3 shadow-sm relative overflow-hidden mx-1 mt-auto">
+      <div className="flex items-center gap-2 mb-1">
+        <Zap className="w-3.5 h-3.5 text-primary-400" />
+        <p className="text-xs font-semibold uppercase tracking-wider text-text-primary">
+          Daily Quota
+        </p>
+      </div>
+
+      <div className="space-y-2 relative z-10">
+        <Bar
+          label="Queries"
+          used={quota.queries.used}
+          limit={quota.queries.limit}
+          icon={<Activity className="w-3.5 h-3.5 text-primary-400" />}
+        />
+        <Bar
+          label="Prescriptions"
+          used={quota.prescriptions.used}
+          limit={quota.prescriptions.limit}
+          icon={<Database className="w-3.5 h-3.5 text-primary-400" />}
+        />
+      </div>
     </div>
   );
 }

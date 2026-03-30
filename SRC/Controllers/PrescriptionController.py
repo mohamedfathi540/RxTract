@@ -126,15 +126,16 @@ class PrescriptionController(basecontroller):
 
         # ── Step 3: Parse OCR response ──────────────────────────────
         await on_progress("extraction", "Parsing medicine data...", 40)
-        medicines_raw, ocr_text = ocr_client.parse_response(raw_response)
+        medicines_raw, ocr_text, doctor_specialty = ocr_client.parse_response(raw_response)
 
         if not ocr_text or not ocr_text.strip():
-            return {"ocr_text": "", "medicines": []}
+            return {"doctor_specialty": "Unknown", "ocr_text": "", "medicines": []}
 
         # ── Step 4: LLM extraction for text-based providers ─────────
+        # Note: doctor_specialty already set by parse_response (vision providers fill it directly)
         if not medicines_raw:
             await on_progress("extraction", "Identifying medicine names...", 45)
-            medicines_raw = await self._llm_extract_medicines(
+            medicines_raw, doctor_specialty = await self._llm_extract_medicines(
                 ocr_text, genration_client
             )
 
@@ -144,26 +145,29 @@ class PrescriptionController(basecontroller):
                 ocr_text
             )
             if not algo_medicines:
-                return {"ocr_text": ocr_text, "medicines": []}
+                return {"doctor_specialty": doctor_specialty, "ocr_text": ocr_text, "medicines": []}
             await on_progress("enrichment", "Looking up active ingredients...", 65)
             medicines = await self._enrich_medicines(algo_medicines)
         else:
             await on_progress("enrichment", "Looking up active ingredients...", 65)
             medicines = await self._enrich_medicines(medicines_raw)
 
-        return {"ocr_text": ocr_text, "medicines": medicines}
+        return {"doctor_specialty": doctor_specialty, "ocr_text": ocr_text, "medicines": medicines}
 
     # =================================================================
     # LLM-based medicine extraction (used by text-based OCR providers)
     # =================================================================
     async def _llm_extract_medicines(
         self, ocr_text: str, genration_client
-    ) -> List[dict]:
-        """Extract medicine names + active ingredients from OCR text."""
+    ) -> tuple[List[dict], str]:
+        """Extract medicine names + active ingredients from OCR text.
+        
+        Returns a tuple of (medicines_list, doctor_specialty).
+        """
         from fastapi.concurrency import run_in_threadpool
 
         if not ocr_text or not ocr_text.strip():
-            return []
+            return [], "Unknown"
 
         prompt = text_extraction_prompt.substitute(
             ocr_text=ocr_text.replace("$", "$$"),
@@ -181,7 +185,7 @@ class PrescriptionController(basecontroller):
 
             if not response:
                 logger.warning("LLM returned empty response")
-                return []
+                return [], "Unknown"
 
             logger.info("Raw LLM response: %s", response)
 
@@ -191,51 +195,58 @@ class PrescriptionController(basecontroller):
                 cleaned = re.sub(r"\s*```$", "", cleaned)
             cleaned = cleaned.strip()
 
-            array_match = re.search(r'\[.*\]', cleaned, re.DOTALL)
-            if array_match:
-                cleaned = array_match.group(0)
+            # Try to parse as a JSON object (new format) first, then fall back to array
+            parsed = json.loads(cleaned)
 
-            medicines = json.loads(cleaned)
-            if isinstance(medicines, list):
-                result = []
-                for m in medicines:
-                    if isinstance(m, dict) and m.get("name"):
-                        active_ing = m.get("active_ingredient")
-                        if active_ing is None:
-                            active_ing = "Unknown"
-                        dosage = m.get("dosage")
-                        if dosage is None:
-                            dosage = "Unknown"
-                        form = m.get("form")
-                        if form is None:
-                            form = "Unknown"
-                        
-                        result.append({
-                            "name": m["name"].strip(),
-                            "active_ingredient": str(active_ing).strip(),
-                            "dosage": str(dosage).strip(),
-                            "form": str(form).strip(),
-                        })
-                    elif isinstance(m, str) and m.strip():
-                        result.append({
-                            "name": m.strip(),
-                            "active_ingredient": "Unknown",
-                            "dosage": "Unknown",
-                            "form": "Unknown",
-                        })
-                logger.info(
-                    "Extracted medicines: %s",
-                    [(m["name"], m["active_ingredient"]) for m in result],
-                )
-                return result
-            return []
+            if isinstance(parsed, dict):
+                extracted_list = parsed.get("medicines", [])
+                doctor_specialty = parsed.get("doctor_specialty", "Unknown") or "Unknown"
+            elif isinstance(parsed, list):
+                # Legacy array format — no specialty
+                extracted_list = parsed
+                doctor_specialty = "Unknown"
+            else:
+                return [], "Unknown"
+
+            result = []
+            for m in extracted_list:
+                if isinstance(m, dict) and m.get("name"):
+                    active_ing = m.get("active_ingredient") or "Unknown"
+                    dosage = m.get("dosage") or "Unknown"
+                    form = m.get("form") or "Unknown"
+                    llm_candidates = m.get("candidates", []) or []
+                    # Filter to plain strings only
+                    llm_candidates = [c for c in llm_candidates if isinstance(c, str) and c.strip()]
+
+                    result.append({
+                        "name": m["name"].strip(),
+                        "active_ingredient": str(active_ing).strip(),
+                        "dosage": str(dosage).strip(),
+                        "form": str(form).strip(),
+                        "llm_candidates": llm_candidates,
+                    })
+                elif isinstance(m, str) and m.strip():
+                    result.append({
+                        "name": m.strip(),
+                        "active_ingredient": "Unknown",
+                        "dosage": "Unknown",
+                        "form": "Unknown",
+                        "llm_candidates": [],
+                    })
+
+            logger.info(
+                "Extracted medicines: %s (specialty: %s)",
+                [(m["name"], m["active_ingredient"]) for m in result],
+                doctor_specialty,
+            )
+            return result, doctor_specialty
 
         except json.JSONDecodeError as e:
             logger.error("Failed to parse LLM JSON: %s", e)
-            return []
+            return [], "Unknown"
         except Exception as e:
             logger.error("Medicine extraction error: %s", e)
-            return []
+            return [], "Unknown"
 
     # =================================================================
     # Enrichment: OpenFDA + Google Image URLs
@@ -248,7 +259,15 @@ class PrescriptionController(basecontroller):
         async def enrich(med: dict) -> dict:
             original_name = med["name"]
             name = original_name
-            active = med["active_ingredient"]
+            
+            # --- PostgreSQL Auto-Correction ---
+            # Correct the name immediately using DB fuzzy match before relying on external APIs
+            corrected_name = self.medicine_matcher.find_best_match(name)
+            if corrected_name and corrected_name.lower() != name.lower():
+                logger.info("Local Matcher corrected OCR name '%s' -> '%s'", name, corrected_name)
+                name = corrected_name
+
+            active = med.get("active_ingredient", "Unknown")
             dosage = med.get("dosage", "Unknown")
             form = med.get("form", "Unknown")
 
@@ -282,12 +301,17 @@ class PrescriptionController(basecontroller):
                     active = local_active
                     logger.info("Local Matcher enhanced '%s': %s", name, active)
 
-            # 4. Candidate suggestions when ingredient remains unknown
+            # 4. Candidate suggestions
             candidates_data = []
-            if active.lower() == "unknown":
-                candidate_names = self.medicine_matcher.get_candidates(name, limit=3)
-                for cand_name in candidate_names:
-                    if cand_name.lower() != name.lower():
+            
+            # Only generate alternatives if we are NOT fully confident in the OCR result
+            is_exact_match = name.lower() in self.medicine_matcher.medicine_map
+            if not is_exact_match or active.lower() == "unknown":
+                seen_cands = set()
+                
+                async def add_cand(cand_name: str):
+                    if isinstance(cand_name, str) and cand_name.strip() and cand_name.lower() != name.lower() and cand_name.lower() not in seen_cands:
+                        seen_cands.add(cand_name.lower())
                         c_scraped = await self._scrape_medicine_url(cand_name)
                         candidates_data.append({
                             "name": cand_name,
@@ -297,9 +321,20 @@ class PrescriptionController(basecontroller):
                                 self._build_google_image_url(cand_name),
                             ),
                         })
+                        
+                # Pull exact validated DB fuzzy candidates FIRST
+                fuzzy_names = self.medicine_matcher.get_candidates(name, limit=3)
+                for cand_name in fuzzy_names:
+                    await add_cand(cand_name)
+
+                # Mix in LLM context-aware candidates if any
+                llm_candidates = med.get("llm_candidates", []) or []
+                for cand_name in llm_candidates:
+                    await add_cand(cand_name)
 
             return {
-                "name": original_name,
+                "name": name,
+                "original_name": original_name,
                 "active_ingredient": active,
                 "dosage": dosage,
                 "form": form,
@@ -322,75 +357,120 @@ class PrescriptionController(basecontroller):
 
     async def _scrape_medicine_url(self, medicine_name: str) -> dict:
         """
-        Search dwaprices.com JSON API for medicine data.
+        Search pharmacy API for medicine data if available, else fallback to a search URL.
+        Iterates over a comma-separated list of PHARMACY_BASE_URL values to find the
+        first pharmacy that stocks the given medicine.
         Returns active ingredient, product URL, image URL, and price.
         """
-        pharmacy_base = getattr(
-            self.settings, "PHARMACY_BASE_URL", "https://dwaprices.com"
-        ).rstrip("/")
-        api_url = f"{pharmacy_base}/routing.php"
-        fallback = self._build_google_image_url(medicine_name)
+        from urllib.parse import urlparse
+        from urllib.parse import quote_plus
 
-        # Use the first word (brand name) for a targeted search
+        pharmacy_base_urls = [url.strip() for url in getattr(self.settings, "PHARMACY_BASE_URL", "").split(',') if url.strip()]
+        if not pharmacy_base_urls:
+            pharmacy_base_urls = ["https://dwaprices.com/"]
+
+        fallback_image = self._build_google_image_url(medicine_name)
         first_word = medicine_name.split()[0] if medicine_name else medicine_name
 
-        try:
-            async with httpx.AsyncClient(
-                timeout=float(getattr(self.settings, "SCRAPING_TIMEOUT", 15)),
-                follow_redirects=True,
-            ) as client:
-                resp = await client.post(
-                    api_url,
-                    data={
-                        "search": "1",
-                        "searchq": first_word,
-                        "order_by": "name ASC",
-                    },
-                    headers={
-                        "User-Agent": getattr(
-                            self.settings,
-                            "SCRAPING_USER_AGENT",
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                        ),
-                    },
-                )
-                if resp.status_code != 200:
-                    logger.debug(
-                        "Pharmacy API returned %d for '%s'",
-                        resp.status_code, first_word,
-                    )
-                    return {"product_url": "", "image_url": fallback, "active": ""}
+        # Phrases indicating an empty search result on generic e-commerce platforms
+        NO_RESULTS_PHRASES = getattr(
+            self.settings, 
+            "SCRAPING_NO_RESULTS_PHRASES"
+        )
 
-                data = resp.json()
-                results = data.get("data", [])
-                if not results:
-                    return {"product_url": "", "image_url": fallback, "active": ""}
+        async with httpx.AsyncClient(
+            timeout=float(getattr(self.settings, "SCRAPING_TIMEOUT", 15)),
+            follow_redirects=True,
+        ) as client:
+            headers = {
+                "User-Agent": getattr(
+                    self.settings,
+                    "SCRAPING_USER_AGENT",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                ),
+            }
 
-                # Pick the first result (API already filters by search term)
-                hit = results[0]
-                product_id = hit.get("id", "")
-                product_url = f"{pharmacy_base}/med.php?id={product_id}" if product_id else ""
-                img = hit.get("img", "")
-                image_url = f"{pharmacy_base}/{img}" if img else ""
-                active = hit.get("active", "")
-                price = hit.get("price", "")
+            for pharmacy_base in pharmacy_base_urls:
+                pharmacy_base = pharmacy_base.rstrip("/")
+                parsed_url = urlparse(pharmacy_base)
+                domain = parsed_url.netloc.lower()
+                base_path = parsed_url.path.rstrip('/')
 
-                if product_url:
-                    logger.info(
-                        "Pharmacy API found '%s': product=%s, active=%s, price=%s",
-                        medicine_name, product_url, active, price,
-                    )
+                # 1. Dwaprices Native JSON API
+                if "dwaprices.com" in domain:
+                    api_url = f"{pharmacy_base}/routing.php"
+                    try:
+                        resp = await client.post(
+                            api_url,
+                            data={"search": "1", "searchq": first_word, "order_by": "name ASC"},
+                            headers=headers,
+                        )
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            results = data.get("data", [])
+                            if results:
+                                hit = results[0]
+                                product_id = hit.get("id", "")
+                                product_url = f"{pharmacy_base}/med.php?id={product_id}" if product_id else ""
+                                img = hit.get("img", "")
+                                image_url = f"{pharmacy_base}/{img}" if img else fallback_image
+                                active = hit.get("active", "")
+                                price = hit.get("price", "")
+                                
+                                logger.info(f"Pharmacy API found '{medicine_name}': product={product_url}")
+                                return {
+                                    "product_url": product_url,
+                                    "image_url": image_url,
+                                    "active": active,
+                                    "price": price,
+                                }
+                    except Exception as e:
+                        logger.debug(f"Pharmacy API failed for '{medicine_name}' on {domain}: {e}")
+                    
+                    continue  # Move to next URL if dwaprices failed
 
-                return {
-                    "product_url": product_url,
-                    "image_url": image_url or fallback,
-                    "active": active,
-                    "price": price,
-                }
+                # 2. Smart fallback URL construction based on standard e-commerce platforms
+                if "chefaa." in domain:
+                    generic_search_url = f"{parsed_url.scheme}://{domain}{base_path}/products/search?q={quote_plus(first_word)}"
+                elif "seif-online." in domain or "elezaby" in domain:
+                    generic_search_url = f"{parsed_url.scheme}://{domain}{base_path}/?s={quote_plus(first_word)}&post_type=product"
+                elif "nahdionline." in domain:
+                    generic_search_url = f"{parsed_url.scheme}://{domain}{base_path}/catalogsearch/result/?q={quote_plus(first_word)}"
+                else:
+                    # General fallback (most modern sites use /search?q=)
+                    generic_search_url = f"{parsed_url.scheme}://{domain}{base_path}/search?q={quote_plus(first_word)}"
 
-        except Exception as e:
-            logger.debug("Pharmacy API failed for '%s': %s", medicine_name, e)
-            return {"product_url": "", "image_url": fallback, "active": ""}
+                # 3. Ping the generic pharmacy URL to verify if the product physically exists in stock
+                try:
+                    resp = await client.get(generic_search_url, headers=headers)
+                    if resp.status_code == 200:
+                        html_lower = resp.text.lower()
+                        # Heuristic Check for "No results" text AND ensure the medicine name is echoed back
+                        if first_word.lower() in html_lower and not any(phrase in html_lower for phrase in NO_RESULTS_PHRASES):
+                            # Product highly likely exists! Return this URL
+                            logger.info(f"Verified '{medicine_name}' exists on {domain} via heuristic.")
+                            return {
+                                "product_url": generic_search_url,
+                                "image_url": fallback_image,
+                                "active": "",
+                                "price": "",
+                            }
+                        else:
+                            logger.debug(f"Product '{medicine_name}' not found on {domain} (matched negative heuristic or failed positive check)")
+                    else:
+                        logger.debug(f"Pharmacy {domain} returned HTTP {resp.status_code} for search")
+                except Exception as e:
+                    logger.debug(f"Pharmacy HTTP verification failed for '{medicine_name}' on {domain}: {e}")
+
+        # 4. Global Fallback if NO pharmacies had the item indexed/found
+        logger.info(f"Medicine '{medicine_name}' was not found on any provided pharmacies in .env list.")
+        global_fallback_url = f"https://www.google.com/search?q={quote_plus(first_word)}+medicine"
+        return {
+            "product_url": global_fallback_url,
+            "image_url": fallback_image,
+            "active": "",
+            "price": "",
+        }
 
     async def _search_openfda(self, medicine_name: str) -> str:
         """Try OpenFDA to get official active ingredient name."""

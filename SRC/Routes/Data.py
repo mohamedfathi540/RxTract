@@ -341,6 +341,60 @@ async def process_endpoint (request :Request ,project_id :int ,process_request :
                 "processed_files" : no_files  })
 
 
+@data_router.get("/search-medicine")
+async def search_medicine(query: str, limit: int = 15):
+    """
+    Search for medicines using the fuzzy matching index loaded from PostgreSQL.
+    """
+    from Utils.MedicineMatcher import MedicineMatcher
+    from urllib.parse import quote_plus
+    from Helpers.Config import get_settings
+    
+    matcher = MedicineMatcher()
+    settings = get_settings()
+    
+    if not query or len(query.strip()) < 2:
+        return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"error": "Query too short"})
+        
+    candidates = matcher.get_candidates(query)
+    
+    if len(candidates) > limit:
+        candidates = candidates[:limit]
+    
+    results = []
+    
+    ph_urls = [u.strip() for u in getattr(settings, "PHARMACY_BASE_URL", "https://dwaprices.com/").split(",") if u.strip()]
+    pharmacy_base = ph_urls[0].rstrip("/") if ph_urls else "https://dwaprices.com"
+    
+    for cand in candidates:
+        ingred = matcher.get_active_ingredient(cand) or "Unknown"
+        first_word = cand.split()[0] if cand else cand
+        
+        # Build Image URL (Google Image Search Fallback)
+        google_query = f"{cand} medicine"
+        image_url = f"https://www.google.com/search?q={quote_plus(google_query)}&tbm=isch"
+        
+        # Build Product Link deterministically
+        domain = pharmacy_base.lower()
+        if "chefaa." in domain:
+            product_url = f"{pharmacy_base}/products/search?q={quote_plus(first_word)}"
+        elif "seif-online." in domain or "elezaby" in domain:
+            product_url = f"{pharmacy_base}/?s={quote_plus(first_word)}&post_type=product"
+        elif "nahdionline." in domain:
+            product_url = f"{pharmacy_base}/catalogsearch/result/?q={quote_plus(first_word)}"
+        else:
+            product_url = f"https://dwaprices.com/?searchq={quote_plus(cand)}"
+
+        results.append({
+            "trade_name": cand,
+            "active_ingredient": ingred,
+            "image_url": image_url,
+            "product_url": product_url
+        })
+        
+    return JSONResponse(content={"results": results})
+
+
    
 
 

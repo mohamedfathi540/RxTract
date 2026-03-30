@@ -32,3 +32,14 @@ export const resetProject = async (
         `/data/project/${projectId}/assets`
     );
 };
+
+export const searchMedicine = async (
+    query: string,
+    limit: number = 15
+): Promise<import('./types').SearchMedicineResponse> => {
+    const response = await apiClient.get<import('./types').SearchMedicineResponse>(
+        `/data/search-medicine`,
+        { params: { query, limit } }
+    );
+    return response.data;
+};

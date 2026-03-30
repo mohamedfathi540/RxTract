@@ -15,7 +15,7 @@ import { useEffect } from "react";
 const navigation = [
   { name: "Prescription", href: "/prescription", icon: DocumentTextIcon },
   { name: "Chat", href: "/", icon: ChatBubbleLeftRightIcon },
-  { name: "Search", href: "/search", icon: MagnifyingGlassIcon },
+  // { name: "Search", href: "/search", icon: MagnifyingGlassIcon },
 ];
 
 interface SidebarProps {

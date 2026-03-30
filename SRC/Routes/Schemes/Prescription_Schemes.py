@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 
 class MedicineInfo(BaseModel):
@@ -9,9 +9,11 @@ class MedicineInfo(BaseModel):
     form: Optional[str] = None
     image_url: Optional[str] = None
     product_url: Optional[str] = None
+    candidates: Optional[List[Dict[str, Any]]] = []  # LLM specialty-aware suggestions
 
 
 class PrescriptionResponse(BaseModel):
     signal: str
+    doctor_specialty: Optional[str] = "Unknown"  # Detected from prescription header
     ocr_text: str
     medicines: List[MedicineInfo]
