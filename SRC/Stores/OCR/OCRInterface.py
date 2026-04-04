@@ -89,10 +89,14 @@ class OCRInterface(ABC):
             return medicines, ocr_text, doctor_specialty
 
         except json.JSONDecodeError as e:
-            logger.error("Failed to parse vision OCR response: %s", e)
-            logger.error("Raw text: %s", text[:500])
+            # --- Plain-text transcription mode (expected after prompt decoupling) ---
+            # Vision prompt now returns raw text, not JSON. Treat the entire
+            # response as ocr_text and let Step 4 (_llm_extract_medicines)
+            # handle extraction and translation.
+            logger.info("Vision OCR returned plain text (non-JSON). Passing to text extraction pipeline.")
+            logger.info("Raw transcription: %s", text[:500])
 
-            # Attempt to salvage ocr_text from truncated JSON
+            # Attempt to salvage ocr_text from truncated JSON (legacy fallback)
             ocr_text = ""
             match = re.search(r'"ocr_text"\s*:\s*"((?:[^"\\]|\\.)*)', text)
             if match:
@@ -132,6 +136,11 @@ class OCRInterface(ABC):
                     "Salvaged from truncated response: ocr_text(len=%d), %d medicines",
                     len(ocr_text), len(medicines),
                 )
+
+            # If nothing was salvaged, the entire raw text IS the transcription
+            if not ocr_text and not medicines:
+                return [], text, "Unknown"
+
             return medicines, ocr_text, "Unknown"
 
     def preprocess_image(self, file_path: str) -> str:

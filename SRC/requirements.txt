@@ -32,6 +32,7 @@ nltk
 rank_bm25
 joblib
 thefuzz[speedup]
+jellyfish
 
 # Prescription OCR & Search
 llama-parse

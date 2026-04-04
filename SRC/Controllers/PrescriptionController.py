@@ -139,6 +139,18 @@ class PrescriptionController(basecontroller):
                 ocr_text, genration_client
             )
 
+        # ── Step 4.5: INTERCEPT AND TRANSLATE ARABIC ────────────────
+        await on_progress("translation", "Standardizing medical terminology...", 55)
+        if medicines_raw:
+            for m in medicines_raw:
+                if isinstance(m, dict):
+                    if m.get("name") and re.search(r'[\u0600-\u06FF]', m["name"]):
+                        m["name"] = await self._translate_arabic_to_english(m["name"], genration_client)
+                    if m.get("dosage") and re.search(r'[\u0600-\u06FF]', m["dosage"]):
+                        m["dosage"] = await self._translate_arabic_to_english(m["dosage"], genration_client)
+                    if m.get("form") and re.search(r'[\u0600-\u06FF]', m["form"]):
+                        m["form"] = await self._translate_arabic_to_english(m["form"], genration_client)
+
         # ── Step 5: Fallback to algorithmic extraction ──────────────
         if not medicines_raw:
             algo_medicines = self.medicine_matcher.extract_medicines_from_text(
@@ -247,6 +259,37 @@ class PrescriptionController(basecontroller):
         except Exception as e:
             logger.error("Medicine extraction error: %s", e)
             return [], "Unknown"
+
+    # =================================================================
+    # Arabic Translation Safety Net
+    # =================================================================
+    async def _translate_arabic_to_english(self, text: str, genration_client) -> str:
+        """Safety net: Translates any Arabic text that sneaks into the JSON."""
+        from fastapi.concurrency import run_in_threadpool
+        
+        if not text or not text.strip():
+            return text
+
+        prompt = (
+            f"Translate this Egyptian Arabic medical text to its English trade name or equivalent. "
+            f"Output ONLY the English text, nothing else. Text: {text}"
+        )
+        try:
+            response = await run_in_threadpool(
+                genration_client.genrate_text,
+                prompt=prompt,
+                chat_history=[],
+                max_output_tokens=50,
+                temperature=0.1,
+            )
+            if response:
+                cleaned = response.replace("'", "").replace('"', "").strip()
+                logger.info("Intercepted Arabic text '%s' translated to -> '%s'", text, cleaned)
+                return cleaned
+        except Exception as e:
+            logger.error("Arabic translation fallback failed: %s", e)
+            
+        return text
 
     # =================================================================
     # Enrichment: OpenFDA + Google Image URLs
