@@ -30,9 +30,28 @@ class MedicineMatcher:
                 "mg", "gm", "ml", "g", "iu", "mcg"
             }
             cls._instance._initialized = False
+
+            # Load settings from .env via Config
+            from Helpers.Config import get_settings
+            _settings = get_settings()
+            cls._instance.ENABLED = bool(getattr(_settings, "MEDICINE_MATCHER_ENABLED", False))
+            cls._instance.token_set_threshold = int(getattr(_settings, "MEDICINE_MATCHER_TOKEN_SET_THRESHOLD", 90))
+            cls._instance.partial_threshold = int(getattr(_settings, "MEDICINE_MATCHER_PARTIAL_THRESHOLD", 90))
+            cls._instance.first_word_threshold = int(getattr(_settings, "MEDICINE_MATCHER_FIRST_WORD_THRESHOLD", 88))
+
+            logger.info(
+                "MedicineMatcher config: ENABLED=%s, token_set=%d, partial=%d, first_word=%d",
+                cls._instance.ENABLED,
+                cls._instance.token_set_threshold,
+                cls._instance.partial_threshold,
+                cls._instance.first_word_threshold,
+            )
         return cls._instance
 
     def __init__(self):
+        if not self.ENABLED:
+            self._initialized = True
+            return
         if self._initialized:
             return
             
@@ -77,7 +96,7 @@ class MedicineMatcher:
             count = 0
             for med in medicines:
                 name = med.trade_name.strip()
-                if not name:
+                if not name or len(name) <= 2:
                     continue
                     
                 if self._add_medicine(name):
@@ -124,10 +143,14 @@ class MedicineMatcher:
 
     def get_active_ingredient(self, name: str) -> Optional[str]:
         """Get the active ingredient for a known brand name."""
+        if not self.ENABLED:
+            return None
         return self.ingredient_map.get(name.lower())
 
     def register_ingredient(self, brand: str, ingredient: str):
         """Map a brand name to an active ingredient."""
+        if not self.ENABLED:
+            return
         brand_lower = brand.lower()
         self.ingredient_map[brand_lower] = ingredient
         
@@ -137,16 +160,27 @@ class MedicineMatcher:
         if canonical:
             self.ingredient_map[canonical.lower()] = ingredient
         
-    def find_best_match(self, query: str, threshold: int = 70) -> Optional[str]:
+    def find_best_match(self, query: str, threshold: int = None) -> Optional[str]:
         """
         Find the best fuzzy match for the query.
         Uses multiple matching strategies for aggressive correction.
         Returns the matched name if detection confidence >= threshold, else None.
         """
-        if not query or len(query) < 3:
+        if not self.ENABLED:
+            return None
+        if threshold is None:
+            threshold = self.token_set_threshold
+        if not query or len(query) < 4:  # Increased minimum length to avoid matching random short letters
             return None
             
         q_lower = query.lower().strip()
+        
+        # --- Block generic single words from aggressive matching ---
+        # If the extracted name is literally just a form (like "Lotion", "Syrup", "Tablet"), do not match it to a specific brand.
+        if q_lower in self.drug_types or q_lower in ["urine", "bag", "blood", "test"]:
+             logger.warning(f"Blocked generic term '{query}' from fuzzy matching.")
+             return None
+
         # Strip trailing dosage info for matching (e.g., "Augmentin 625mg" -> "Augmentin")
         q_clean = re.sub(r'\s*\d+\s*(mg|gm|g|ml|mcg|iu|%|units?)\s*(/\s*\d+\s*(mg|gm|g|ml|mcg))?\s*$', '', q_lower, flags=re.IGNORECASE).strip()
         
@@ -163,25 +197,32 @@ class MedicineMatcher:
         
         try:
             # Strategy 1: token_set_ratio on full query (handles word reordering)
+            # Increased required score to 85 (was 70) to prevent "Waca" -> "MACA" (which scored 75)
             result = process.extractOne(q_clean or query, self.medicines, scorer=fuzz.token_set_ratio)
-            if result and len(result) >= 2 and result[1] >= threshold:
-                logger.info(f"Fuzzy Match (token_set): '{query}' -> '{result[0]}' (Score: {result[1]})")
-                return self.medicine_map.get(result[0].lower(), result[0])
+            if result and len(result) >= 2 and result[1] >= threshold: 
+                # Safety check: Ensure the matched name isn't drastically longer than the query (prevents "Lotion" -> "ACM LOTION ANTI-HAIR LOSS")
+                if len(result[0]) <= len(query) * 2.5: 
+                    logger.info(f"Fuzzy Match (token_set): '{query}' -> '{result[0]}' (Score: {result[1]})")
+                    return self.medicine_map.get(result[0].lower(), result[0])
             
             # Strategy 2: partial_ratio (handles substring matches, e.g., "Augmant" in "Augmentin")
             result2 = process.extractOne(q_clean or query, self.medicines, scorer=fuzz.partial_ratio)
-            if result2 and len(result2) >= 2 and result2[1] >= 80:
-                # Security: prevent matching ridiculously short strings inside the query (e.g. "LL" inside "Mollyle")
-                matched_len = len(result2[0])
-                query_len = len(q_clean or query)
-                if matched_len >= max(4, query_len * 0.4):
-                    logger.info(f"Fuzzy Match (partial): '{query}' -> '{result2[0]}' (Score: {result2[1]})")
-                    return self.medicine_map.get(result2[0].lower(), result2[0])
+            if result2 and len(result2) >= 2 and result2[1] >= self.partial_threshold:
+                matched_str = result2[0]
+                query_str = q_clean or query
+                # STRICT SECURITY: Prevent matching ridiculously short DB entries
+                # The matched string MUST be at least 5 chars AND at least 50% the length of the query
+                if len(matched_str) >= 5 and len(matched_str) >= (len(query_str) * 0.5):
+                    logger.info(f"Fuzzy Match (partial): '{query}' -> '{matched_str}' (Score: {result2[1]})")
+                    return self.medicine_map.get(matched_str.lower(), matched_str)
+                else:
+                    logger.debug(f"Blocked dangerous partial match: '{query_str}' -> '{matched_str}' (too short)")
             
             # Strategy 3: ratio on first word only (handles "Augmantin tab" -> "Augmentin")
-            if first_word and len(first_word) >= 4:
+            # Increased required score to 88 (was 75) and added a stricter length requirement
+            if first_word and len(first_word) >= 5:  # Changed from 4 to 5 to prevent short word snapping
                 result3 = process.extractOne(first_word, self.medicines, scorer=fuzz.ratio)
-                if result3 and len(result3) >= 2 and result3[1] >= 75:
+                if result3 and len(result3) >= 2 and result3[1] >= self.first_word_threshold:
                     logger.info(f"Fuzzy Match (first_word): '{query}' -> '{result3[0]}' (Score: {result3[1]})")
                     return self.medicine_map.get(result3[0].lower(), result3[0])
                     
@@ -195,6 +236,8 @@ class MedicineMatcher:
         Return the top *limit* closest medicine-name candidates for *query*.
         Uses direct substring matching plus fuzzy token_set_ratio.
         """
+        if not self.ENABLED:
+            return []
         if not query or len(query) < 2:
             return []
 
@@ -238,6 +281,8 @@ class MedicineMatcher:
         """
         Search the database for medicines containing the given active ingredient.
         """
+        if not self.ENABLED:
+            return []
         if not ingredient or ingredient.lower() == "unknown":
             return []
             
@@ -277,6 +322,8 @@ class MedicineMatcher:
         Finds drug types and uses word-level indexing combined with fuzzy matching
         to forcefully match parts of names against the database.
         """
+        if not self.ENABLED:
+            return []
         if not text or not text.strip():
             return []
 
@@ -421,6 +468,39 @@ class MedicineMatcher:
             context = full_text[idx:idx + 100]
             dosage = self.extract_dosage_from_string(context)
             form = self.extract_form_from_string(context)
-        
         return dosage, form
+
+    def get_database_pool_for_llm(self, ocr_text: str, max_items: int = 100) -> str:
+        """
+        Creates a dynamic subset of the database containing potential matches
+        for the LLM to use for self-correction.
+        """
+        if not ocr_text:
+            return "No database records retrieved."
+
+        # Extract meaningful words from OCR text
+        words = [w for w in re.split(r'[^a-zA-Z0-9]', ocr_text.lower()) if len(w) >= 3]
+        pool = set()
+
+        for word in words:
+            # 1. Add matches from the word index
+            if word in self.word_index:
+                pool.update(self.word_index[word])
+
+            # 2. Add substring matches (fast scan)
+            for med in self.medicines:
+                if word in med.lower():
+                    canonical = self.medicine_map.get(med.lower(), med)
+                    pool.add(canonical)
+                    if len(pool) >= max_items:
+                        break
+            if len(pool) >= max_items:
+                break
+
+        if not pool:
+            return "No close database matches found."
+
+        limited_pool = list(pool)[:max_items]
+        return "\n".join([f"- {name}" for name in limited_pool])
+
 

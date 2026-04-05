@@ -80,6 +80,12 @@ class settings (BaseSettings):
         'no products were found', 'no matching records found', 'we searched really hard',
     ]
 
+    # Medicine Matcher (Fuzzy DB Matching)
+    MEDICINE_MATCHER_ENABLED : bool = False
+    MEDICINE_MATCHER_TOKEN_SET_THRESHOLD : int = 90
+    MEDICINE_MATCHER_PARTIAL_THRESHOLD : int = 90
+    MEDICINE_MATCHER_FIRST_WORD_THRESHOLD : int = 88
+
     # Pharmacy product search (for medicine URL scraping)
     PHARMACY_BASE_URL : str = "https://dwaprices.com/"
 
