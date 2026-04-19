@@ -128,6 +128,14 @@ class settings (BaseSettings):
     SENDER_EMAIL : str = "noreply@yourdomain.com"
     FRONTEND_URL : str = "http://localhost:5173"
 
+    # ── Pharmacy Agent / Correction Controller ──
+    # Model used by MedicineCorrectionController for OCR name correction.
+    # Defaults to gemini-2.5-flash (fast, cheap, accurate).
+    CORRECTION_MODEL_ID : str = "gemini-2.5-flash"
+    # Model used by PharmacyAgentController for multi-turn agentic chat.
+    # Defaults to gemini-2.5-pro (best reasoning for medical context).
+    AGENT_MODEL_ID : str = "gemini-2.5-pro"
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding='utf-8', extra="ignore")
 
 def get_settings () :

@@ -22,6 +22,9 @@ from Stores.OCR.OCRProviderFactory import OCRProviderFactory
 from Stores.LLM.Templates.template_parser import template_parser as TemplateParser
 from Utils.metrics import setup_metrics
 from Controllers.SecurityController import SecurityController, limiter
+from Controllers.MedicineCorrectionController import MedicineCorrectionController
+from Controllers.PharmacyAgentController import PharmacyAgentController
+from Controllers.AgentTools import PharmacyAgentTools
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -109,6 +112,31 @@ async def startup_span():
         language=settings.PRIMARY_LANGUAGE,
         default_language=settings.DEFUALT_LANGUAGE,
     )
+
+    # ── Pharmacy Agent Pipeline (Gemini-powered) ───────────────────
+    gemini_api_key = getattr(settings, "GEMINI_API_KEY", None)
+    if gemini_api_key:
+        # Medicine OCR name corrector — used inside PrescriptionController
+        correction_model = getattr(settings, "CORRECTION_MODEL_ID", "gemini-2.5-flash")
+        app.correction_ctrl = MedicineCorrectionController(
+            api_key=gemini_api_key,
+            model_id=correction_model,
+        )
+        logger.info("[Startup] MedicineCorrectionController ready (model=%s)", correction_model)
+
+        # Agentic chat controller — tools wired with no-op stubs (inject real services when ready)
+        agent_model = getattr(settings, "AGENT_MODEL_ID", "gemini-2.5-pro")
+        _tools = PharmacyAgentTools(db_service=None, rag_service=None)
+        app.pharmacy_agent = PharmacyAgentController(
+            api_key=gemini_api_key,
+            tools=_tools,
+            model_id=agent_model,
+        )
+        logger.info("[Startup] PharmacyAgentController ready (model=%s)", agent_model)
+    else:
+        app.correction_ctrl = None
+        app.pharmacy_agent = None
+        logger.warning("[Startup] GEMINI_API_KEY not set — MedicineCorrectionController and PharmacyAgentController disabled.")
 
 
 # ── Shutdown event ──────────────────────────────────────────────────

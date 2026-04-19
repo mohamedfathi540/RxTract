@@ -8,7 +8,6 @@ from Controllers.NLPController import NLPController
 from Models.enums.ResponsEnums import ResponseSignal
 from Helpers.Config import get_settings
 from tqdm.auto import tqdm
-from Controllers.UtilsController import UtilsController
 from Controllers.SecurityController import limiter, config_limit, SecurityController
 
 logger = logging.getLogger("uvicorn.error")
@@ -171,7 +170,7 @@ async def answer_index(request :Request ,project_id :int , search_request : Sear
                       user=Depends(SecurityController.require_quota("query"))) :
     
     # ── Prompt Guard: validate input ──
-    is_safe, reason = UtilsController.validate_input(search_request.text)
+    is_safe, reason = SecurityController.validate_input(search_request.text)
     if not is_safe:
         logger.warning("Prompt injection blocked: %s", reason)
         return JSONResponse(
@@ -203,7 +202,7 @@ async def answer_index(request :Request ,project_id :int , search_request : Sear
                             )
 
     # ── Prompt Guard: validate output ──
-    output_safe, output_reason = UtilsController.validate_output(answer)
+    output_safe, output_reason = SecurityController.validate_output(answer)
     if not output_safe:
         logger.warning("Output leak blocked: %s", output_reason)
         answer = "I can only help with questions about the provided documents."

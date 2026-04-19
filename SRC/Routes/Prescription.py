@@ -17,7 +17,6 @@ from Models.Asset_Model import AssetModel
 from Models.DB_Schemes import dataChunk, Asset, Project
 from Models.enums.AssetTypeEnum import assettypeEnum
 from Stores.LLM.LLMEnums import DocumentTypeEnum
-from Controllers.UtilsController import UtilsController
 from Controllers.SecurityController import limiter, config_limit, SecurityController
 
 logger = logging.getLogger("uvicorn.error")
@@ -74,7 +73,9 @@ async def analyze_prescription(request: Request, file: UploadFile,
         tmp_file.close()
 
         # Run OCR pipeline
-        controller = PrescriptionController()
+        controller = PrescriptionController(
+            correction_ctrl=getattr(request.app, "correction_ctrl", None)
+        )
         result = await controller.analyze_prescription(
             file_path=tmp_file.name,
             genration_client=request.app.genration_client,
@@ -241,7 +242,9 @@ async def analyze_prescription_stream(request: Request, file: UploadFile,
             yield progress_event("upload", "Image received", 10)
 
             # ── Steps 2-4: OCR pipeline (with progress callbacks) ──
-            controller = PrescriptionController()
+            controller = PrescriptionController(
+                correction_ctrl=getattr(request.app, "correction_ctrl", None)
+            )
 
             # We use a queue to collect progress events from the controller callback
             progress_queue = asyncio.Queue()
@@ -408,7 +411,7 @@ async def prescription_chat(request: Request, chat_request: PrescriptionChatRequ
     Uses the RAG system scoped to the project_id created from analyze.
     """
     # ── Prompt Guard: validate input ──
-    is_safe, reason = UtilsController.validate_input(chat_request.text)
+    is_safe, reason = SecurityController.validate_input(chat_request.text)
     if not is_safe:
         logger.warning("Prompt injection blocked: %s", reason)
         return JSONResponse(
@@ -456,7 +459,7 @@ async def prescription_chat(request: Request, chat_request: PrescriptionChatRequ
         )
 
     # ── Prompt Guard: validate output ──
-    output_safe, output_reason = UtilsController.validate_output(answer)
+    output_safe, output_reason = SecurityController.validate_output(answer)
     if not output_safe:
         logger.warning("Output leak blocked: %s", output_reason)
         answer = "I can only help with questions about your prescription and medicines."

@@ -18,7 +18,7 @@ import re
 import json
 import logging
 import asyncio
-from typing import List
+from typing import List, Optional
 from urllib.parse import quote_plus
 
 import httpx
@@ -39,10 +39,17 @@ logger = logging.getLogger("uvicorn.error")
 
 class PrescriptionController(basecontroller):
 
-    def __init__(self):
+    def __init__(self, correction_ctrl=None):
+        """
+        Args:
+            correction_ctrl: Optional MedicineCorrectionController instance.
+                             When provided, LLM-based OCR name correction is used
+                             inside _enrich_medicines() instead of the fuzzy matcher.
+        """
         super().__init__()
         self.settings = get_settings()
         self.medicine_matcher = MedicineMatcher()
+        self.correction_ctrl = correction_ctrl  # injected at startup from app state
         self._register_common_ingredients()
 
     def _register_common_ingredients(self):
@@ -70,6 +77,7 @@ class PrescriptionController(basecontroller):
         genration_client,
         ocr_client=None,
         on_progress=None,
+        correction_ctrl=None,
     ) -> dict:
         """
         Unified pipeline:
@@ -152,6 +160,9 @@ class PrescriptionController(basecontroller):
                         m["form"] = await self._translate_arabic_to_english(m["form"], genration_client)
 
         # ── Step 5: Fallback to algorithmic extraction ──────────────
+        # Resolve which correction controller to use: caller-supplied → instance-level → None
+        active_correction_ctrl = correction_ctrl or self.correction_ctrl
+
         if not medicines_raw:
             algo_medicines = self.medicine_matcher.extract_medicines_from_text(
                 ocr_text
@@ -159,10 +170,18 @@ class PrescriptionController(basecontroller):
             if not algo_medicines:
                 return {"doctor_specialty": doctor_specialty, "ocr_text": ocr_text, "medicines": []}
             await on_progress("enrichment", "Looking up active ingredients...", 65)
-            medicines = await self._enrich_medicines(algo_medicines)
+            medicines = await self._enrich_medicines(
+                algo_medicines,
+                doctor_specialty=doctor_specialty,
+                correction_ctrl=active_correction_ctrl,
+            )
         else:
             await on_progress("enrichment", "Looking up active ingredients...", 65)
-            medicines = await self._enrich_medicines(medicines_raw)
+            medicines = await self._enrich_medicines(
+                medicines_raw,
+                doctor_specialty=doctor_specialty,
+                correction_ctrl=active_correction_ctrl,
+            )
 
         return {"doctor_specialty": doctor_specialty, "ocr_text": ocr_text, "medicines": medicines}
 
@@ -295,20 +314,55 @@ class PrescriptionController(basecontroller):
     # Enrichment: OpenFDA + Google Image URLs
     # =================================================================
     async def _enrich_medicines(
-        self, medicines_raw: List[dict]
+        self,
+        medicines_raw: List[dict],
+        doctor_specialty: str = "Unknown",
+        correction_ctrl=None,
     ) -> List[dict]:
-        """Enhance ingredients via pharmacy API, OpenFDA, local lookup; build URLs."""
+        """Enhance ingredients via pharmacy API, OpenFDA, local lookup; build URLs.
+
+        Args:
+            medicines_raw:    List of medicine dicts from OCR/LLM extraction.
+            doctor_specialty: Specialty string used by the LLM correction prompt.
+            correction_ctrl:  Optional MedicineCorrectionController; when present,
+                              LLM correction replaces the fuzzy-matcher fallback.
+        """
 
         async def enrich(med: dict) -> dict:
             original_name = med["name"]
             name = original_name
-            
-            # --- PostgreSQL Auto-Correction ---
-            # Correct the name immediately using DB fuzzy match before relying on external APIs
-            corrected_name = self.medicine_matcher.find_best_match(name)
-            if corrected_name and corrected_name.lower() != name.lower():
-                logger.info("Local Matcher corrected OCR name '%s' -> '%s'", name, corrected_name)
-                name = corrected_name
+            active = med.get("active_ingredient", "Unknown")
+
+            # --- Name Correction ---
+            # LLM correction is only useful when the primary extraction could NOT
+            # identify the active ingredient (meaning the OCR name was too noisy).
+            # When active_ingredient is already known, skip correction entirely.
+            if correction_ctrl is not None:
+                result = await correction_ctrl.correct_medicine_name(
+                    raw_ocr_name=name,
+                    doctor_specialty=doctor_specialty,
+                    active_ingredient=active,
+                    candidates=med.get("candidates", []),
+                )
+                if result["corrected"] and result["name"].lower() != name.lower():
+                    logger.info(
+                        "LLM Correction: '%s' → '%s'", name, result["name"]
+                    )
+                    name = result["name"]
+                elif result["uncertain"]:
+                    logger.info(
+                        "LLM Correction uncertain for '%s', keeping original.", name
+                    )
+                elif result["error"]:
+                    logger.warning(
+                        "LLM Correction error for '%s': %s", name, result["error"]
+                    )
+            else:
+                # Fallback: local fuzzy matcher (only when LLM controller absent)
+                corrected_name = self.medicine_matcher.find_best_match(name)
+                if corrected_name and corrected_name.lower() != name.lower():
+                    logger.info("Local Matcher corrected OCR name '%s' -> '%s'", name, corrected_name)
+                    name = corrected_name
 
             active = med.get("active_ingredient", "Unknown")
             dosage = med.get("dosage", "Unknown")

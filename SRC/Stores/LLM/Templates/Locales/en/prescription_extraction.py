@@ -50,8 +50,8 @@ Extract ALL medicine brand names, ingredients, dosages, and forms from this raw 
 
 ### EXTRACTION GUIDELINES:
 - **Ignore Noise**: Treat characters like ($$, @, RI, *, #) as noise.
-- **BILINGUAL TRANSLATION**: The text contains Arabic. You MUST translate ANY Arabic medicine name, dosage, or form into its standard English medical equivalent (e.g., "كونجستال" -> "Kongestal", "قرص" -> "tablet"). DO NOT output Arabic text in the final JSON.
-- **LLM SELF-CORRECTION (CRITICAL)**: You are provided a "DATABASE EXCERPT" below. The OCR text contains spelling mistakes. You MUST compare the messy OCR text against the database excerpt and self-correct the spelling. The final "name" in your JSON MUST match a name from the database exactly. Do not output the raw OCR spelling.
+- **BILINGUAL CAPTURE**: Start by translating Arabic medicine names to standard English (e.g., "كونجستال" -> "Kongestal"). If you aren't 100% sure of the English translation, you MUST output the medicine name exactly as written in Arabic. NEVER skip or drop a medicine because it is in Arabic. Always translate dosages and forms to English (e.g., "قرص" -> "tablet").
+- **LLM SELF-CORRECTION (CRITICAL)**: Compare the messy OCR against the reference list below to fix typos. If the OCR name clearly matches a reference item, use the reference spelling.
 - **Aggressive Capture**: Capture any word near a dosage or clinical sign.
 - **Dosage & Form**: ALWAYS identify the dosage and pharmaceutical form.
 - **Contextual Specialty Correction**: Identify the doctor's specialty from the header. Use it to guide spelling corrections.
