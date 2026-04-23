@@ -25,6 +25,7 @@ from Controllers.SecurityController import SecurityController, limiter
 from Controllers.MedicineCorrectionController import MedicineCorrectionController
 from Controllers.PharmacyAgentController import PharmacyAgentController
 from Controllers.AgentTools import PharmacyAgentTools
+from Utils.MedicineMatcher import MedicineMatcher
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -113,6 +114,13 @@ async def startup_span():
         default_language=settings.DEFUALT_LANGUAGE,
     )
 
+    # ── MedicineMatcher (async DB load — no blocking engine) ───────
+    app.medicine_matcher = await MedicineMatcher.create(app.db_client)
+    logger.info(
+        "[Startup] MedicineMatcher ready (%d medicines loaded)",
+        len(app.medicine_matcher.medicines),
+    )
+
     # ── Pharmacy Agent Pipeline (Gemini-powered) ───────────────────
     gemini_api_key = getattr(settings, "GEMINI_API_KEY", None)
     if gemini_api_key:
@@ -124,9 +132,26 @@ async def startup_span():
         )
         logger.info("[Startup] MedicineCorrectionController ready (model=%s)", correction_model)
 
-        # Agentic chat controller — tools wired with no-op stubs (inject real services when ready)
+        # ── NLPController (shared singleton for agent RAG) ─────────
+        from Controllers.NLPController import NLPController
+        _shared_nlp = NLPController(
+            genration_client=app.genration_client,
+            embedding_client=app.embedding_client,
+            vectordb_client=app.vectordb_client,
+            template_parser=app.template_parser,
+        )
+
+        # ── Wire real services to agent tools ──────────────────────
+        from Services.PrescriptionDBService import PrescriptionDBService
+        from Services.RAGService import RAGService
+
+        _db_svc  = PrescriptionDBService(app.db_client)
+        _rag_svc = RAGService(_shared_nlp, app.db_client)
+        _tools   = PharmacyAgentTools(db_service=_db_svc, rag_service=_rag_svc)
+        app.agent_tools = _tools   # expose so endpoints can call set_project_context()
+
+        # Agentic chat controller
         agent_model = getattr(settings, "AGENT_MODEL_ID", "gemini-2.5-pro")
-        _tools = PharmacyAgentTools(db_service=None, rag_service=None)
         app.pharmacy_agent = PharmacyAgentController(
             api_key=gemini_api_key,
             tools=_tools,
@@ -134,9 +159,13 @@ async def startup_span():
         )
         logger.info("[Startup] PharmacyAgentController ready (model=%s)", agent_model)
     else:
-        app.correction_ctrl = None
-        app.pharmacy_agent = None
-        logger.warning("[Startup] GEMINI_API_KEY not set — MedicineCorrectionController and PharmacyAgentController disabled.")
+        app.correction_ctrl  = None
+        app.pharmacy_agent   = None
+        app.agent_tools      = None
+        logger.warning(
+            "[Startup] GEMINI_API_KEY not set — "
+            "MedicineCorrectionController and PharmacyAgentController disabled."
+        )
 
 
 # ── Shutdown event ──────────────────────────────────────────────────

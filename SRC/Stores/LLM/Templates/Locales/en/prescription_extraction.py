@@ -38,8 +38,9 @@ RULES:
 1. Transcribe ALL Arabic words exactly as they appear (e.g., "باندول", "حقن", "قرص"). DO NOT ignore Arabic handwriting.
 2. Transcribe ALL English words.
 3. Include all numbers, dosages (mg, gm), and forms.
-4. Do not translate anything yet. 
-5. DO NOT FORMAT AS JSON. Just write out the plain text of what you see.
+4. Do not translate anything yet.
+5. YOU HAVE ACCESS TO GOOGLE SEARCH. If the handwriting is messy but looks like a drug name, USE GOOGLE SEARCH to verify the likely medicine and output the corrected transcription.
+6. DO NOT FORMAT AS JSON. Just write out the plain text of what you see.
 """.strip())
 
 # --- 2. TEXT PROMPT (TRANSLATION & JSON FORMATTING) ---

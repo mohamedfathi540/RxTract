@@ -22,6 +22,7 @@ from typing import List, Optional
 from urllib.parse import quote_plus
 
 import httpx
+from thefuzz import fuzz
 
 from .BaseController import basecontroller
 from Helpers.Config import get_settings
@@ -39,16 +40,20 @@ logger = logging.getLogger("uvicorn.error")
 
 class PrescriptionController(basecontroller):
 
-    def __init__(self, correction_ctrl=None):
+    def __init__(self, correction_ctrl=None, medicine_matcher=None):
         """
         Args:
-            correction_ctrl: Optional MedicineCorrectionController instance.
-                             When provided, LLM-based OCR name correction is used
-                             inside _enrich_medicines() instead of the fuzzy matcher.
+            correction_ctrl:   Optional MedicineCorrectionController instance.
+                               When provided, LLM-based OCR name correction is used
+                               inside _enrich_medicines() instead of the fuzzy matcher.
+            medicine_matcher:  Optional pre-built MedicineMatcher singleton.
+                               Falls back to constructing one if not provided
+                               (backward-compatible, but the singleton is already loaded).
         """
         super().__init__()
         self.settings = get_settings()
-        self.medicine_matcher = MedicineMatcher()
+        # Prefer the injected singleton; fall back to the lazy singleton getter
+        self.medicine_matcher = medicine_matcher if medicine_matcher is not None else MedicineMatcher()
         self.correction_ctrl = correction_ctrl  # injected at startup from app state
         self._register_common_ingredients()
 
@@ -164,23 +169,45 @@ class PrescriptionController(basecontroller):
         active_correction_ctrl = correction_ctrl or self.correction_ctrl
 
         if not medicines_raw:
-            algo_medicines = self.medicine_matcher.extract_medicines_from_text(
-                ocr_text
-            )
-            if not algo_medicines:
-                return {"doctor_specialty": doctor_specialty, "ocr_text": ocr_text, "medicines": []}
-            await on_progress("enrichment", "Looking up active ingredients...", 65)
-            medicines = await self._enrich_medicines(
-                algo_medicines,
-                doctor_specialty=doctor_specialty,
-                correction_ctrl=active_correction_ctrl,
-            )
+            return {"doctor_specialty": doctor_specialty, "ocr_text": ocr_text, "medicines": []}
         else:
             await on_progress("enrichment", "Looking up active ingredients...", 65)
+            # --- Batch Medicine Correction ---
+            if active_correction_ctrl:
+                # Filter medicines that actually need correction
+                # (e.g. ingredient is Unknown or name looks like raw OCR)
+                to_correct = []
+                for m in medicines_raw:
+                    # SMART SKIP: Only correct if brand name is "Unknown" or matches noisy patterns
+                    # or active ingredient was not resolved.
+                    needs_fix = (
+                        m.get("active_ingredient", "Unknown").lower() == "unknown" or
+                        len(m["name"]) < 4 or
+                        any(char.isdigit() for char in m["name"]) # noisy names often have random digits
+                    )
+                    if needs_fix:
+                        to_correct.append(m)
+
+                if to_correct:
+                    correction_results = await active_correction_ctrl.correct_medicines_batch(
+                        medicines_data=to_correct,
+                        doctor_specialty=doctor_specialty,
+                        full_ocr_text=ocr_text,
+                    )
+                    # Map results back to original list
+                    res_map = {m["name"]: r for m, r in zip(to_correct, correction_results)}
+                    for m in medicines_raw:
+                        if m["name"] in res_map:
+                            res = res_map[m["name"]]
+                            if res["corrected"]:
+                                logger.info("Batch Correction: '%s' → '%s'", m["name"], res["name"])
+                                m["name"] = res["name"]
+
+            # --- Enrichment ---
             medicines = await self._enrich_medicines(
                 medicines_raw,
                 doctor_specialty=doctor_specialty,
-                correction_ctrl=active_correction_ctrl,
+                ocr_text=ocr_text,
             )
 
         return {"doctor_specialty": doctor_specialty, "ocr_text": ocr_text, "medicines": medicines}
@@ -317,7 +344,7 @@ class PrescriptionController(basecontroller):
         self,
         medicines_raw: List[dict],
         doctor_specialty: str = "Unknown",
-        correction_ctrl=None,
+        ocr_text: str = "",
     ) -> List[dict]:
         """Enhance ingredients via pharmacy API, OpenFDA, local lookup; build URLs.
 
@@ -326,6 +353,7 @@ class PrescriptionController(basecontroller):
             doctor_specialty: Specialty string used by the LLM correction prompt.
             correction_ctrl:  Optional MedicineCorrectionController; when present,
                               LLM correction replaces the fuzzy-matcher fallback.
+            ocr_text:         Full OCR text context.
         """
 
         async def enrich(med: dict) -> dict:
@@ -333,36 +361,8 @@ class PrescriptionController(basecontroller):
             name = original_name
             active = med.get("active_ingredient", "Unknown")
 
-            # --- Name Correction ---
-            # LLM correction is only useful when the primary extraction could NOT
-            # identify the active ingredient (meaning the OCR name was too noisy).
-            # When active_ingredient is already known, skip correction entirely.
-            if correction_ctrl is not None:
-                result = await correction_ctrl.correct_medicine_name(
-                    raw_ocr_name=name,
-                    doctor_specialty=doctor_specialty,
-                    active_ingredient=active,
-                    candidates=med.get("candidates", []),
-                )
-                if result["corrected"] and result["name"].lower() != name.lower():
-                    logger.info(
-                        "LLM Correction: '%s' → '%s'", name, result["name"]
-                    )
-                    name = result["name"]
-                elif result["uncertain"]:
-                    logger.info(
-                        "LLM Correction uncertain for '%s', keeping original.", name
-                    )
-                elif result["error"]:
-                    logger.warning(
-                        "LLM Correction error for '%s': %s", name, result["error"]
-                    )
-            else:
-                # Fallback: local fuzzy matcher (only when LLM controller absent)
-                corrected_name = self.medicine_matcher.find_best_match(name)
-                if corrected_name and corrected_name.lower() != name.lower():
-                    logger.info("Local Matcher corrected OCR name '%s' -> '%s'", name, corrected_name)
-                    name = corrected_name
+            # --- Name Correction is now handled in batch before enrichment ---
+            pass
 
             active = med.get("active_ingredient", "Unknown")
             dosage = med.get("dosage", "Unknown")
@@ -378,11 +378,21 @@ class PrescriptionController(basecontroller):
             scraped = await self._scrape_medicine_url(name)
             product_url = scraped.get("product_url", "")
             image_url = scraped.get("image_url") or self._build_google_image_url(name)
+            price = scraped.get("price", "Unknown")
             pharmacy_active = scraped.get("active", "")
 
             if pharmacy_active and active.lower() == "unknown":
                 active = pharmacy_active
                 logger.info("Pharmacy API enhanced '%s': %s", name, active)
+
+            # --- Search-based Name Correction ---
+            # If the pharmacy API found a product and it's highly similar but more 'formal',
+            # update the name to the formal version.
+            pharmacy_hit_name = scraped.get("hit_name")
+            if pharmacy_hit_name and pharmacy_hit_name.lower() != name.lower():
+                # Only trust it if it's not a generic result (already validated in _scrape)
+                name = pharmacy_hit_name
+                logger.info("Pharmacy Search corrected name: '%s' → '%s'", original_name, name)
 
             # 2. OpenFDA Search (fallback for international medicines)
             if active.lower() == "unknown":
@@ -391,43 +401,19 @@ class PrescriptionController(basecontroller):
                     active = openfda_result
                     logger.info("OpenFDA enhanced '%s': %s", name, active)
 
-            # 3. Local Ingredient Lookup Fallback
-            if active.lower() == "unknown":
-                local_active = self.medicine_matcher.get_active_ingredient(name)
-                if local_active:
-                    active = local_active
-                    logger.info("Local Matcher enhanced '%s': %s", name, active)
 
             # 4. Candidate suggestions
             candidates_data = []
-            
-            # Only generate alternatives if we are NOT fully confident in the OCR result
-            is_exact_match = name.lower() in self.medicine_matcher.medicine_map
-            if not is_exact_match or active.lower() == "unknown":
-                seen_cands = set()
-                
-                async def add_cand(cand_name: str):
-                    if isinstance(cand_name, str) and cand_name.strip() and cand_name.lower() != name.lower() and cand_name.lower() not in seen_cands:
-                        seen_cands.add(cand_name.lower())
-                        c_scraped = await self._scrape_medicine_url(cand_name)
-                        candidates_data.append({
-                            "name": cand_name,
-                            "product_url": c_scraped.get("product_url", ""),
-                            "image_url": c_scraped.get(
-                                "image_url",
-                                self._build_google_image_url(cand_name),
-                            ),
-                        })
-                        
-                # Pull exact validated DB fuzzy candidates FIRST
-                fuzzy_names = self.medicine_matcher.get_candidates(name, limit=3)
-                for cand_name in fuzzy_names:
-                    await add_cand(cand_name)
-
-                # Mix in LLM context-aware candidates if any
-                llm_candidates = med.get("llm_candidates", []) or []
-                for cand_name in llm_candidates:
-                    await add_cand(cand_name)
+            seen_cands = set()
+            llm_candidates = med.get("llm_candidates", []) or []
+            for cand_name in llm_candidates:
+                if isinstance(cand_name, str) and cand_name.strip() and cand_name.lower() != name.lower() and cand_name.lower() not in seen_cands:
+                    seen_cands.add(cand_name.lower())
+                    candidates_data.append({
+                        "name": cand_name,
+                        "product_url": "",
+                        "image_url": self._build_google_image_url(cand_name),
+                    })
 
             return {
                 "name": name,
@@ -437,6 +423,7 @@ class PrescriptionController(basecontroller):
                 "form": form,
                 "image_url": image_url,
                 "product_url": product_url,
+                "price": price,
                 "candidates": candidates_data,
             }
 
@@ -467,7 +454,20 @@ class PrescriptionController(basecontroller):
             pharmacy_base_urls = ["https://dwaprices.com/"]
 
         fallback_image = self._build_google_image_url(medicine_name)
-        first_word = medicine_name.split()[0] if medicine_name else medicine_name
+
+        # Build a meaningful search term: take up to 3 non-numeric, non-unit words.
+        # A single 2-letter word like "DA" is too ambiguous — use at least 2 words when available.
+        _unit_pattern = re.compile(
+            r'^\d+(?:\.\d+)?(mg|gm|g|ml|mcg|iu|%|units?)$', re.IGNORECASE
+        )
+        words_for_search = [
+            w for w in medicine_name.split()
+            if len(w) >= 2 and not _unit_pattern.match(w)
+        ]
+        # Use at least 2 words if available, capped at 3
+        search_term = " ".join(words_for_search[:3]) if words_for_search else medicine_name
+        # Fallback for single-letter start words: use more of the name
+        first_word = words_for_search[0] if words_for_search else medicine_name
 
         # Phrases indicating an empty search result on generic e-commerce platforms
         NO_RESULTS_PHRASES = getattr(
@@ -499,7 +499,7 @@ class PrescriptionController(basecontroller):
                     try:
                         resp = await client.post(
                             api_url,
-                            data={"search": "1", "searchq": first_word, "order_by": "name ASC"},
+                            data={"search": "1", "searchq": search_term, "order_by": "name ASC"},
                             headers=headers,
                         )
                         if resp.status_code == 200:
@@ -507,23 +507,50 @@ class PrescriptionController(basecontroller):
                             results = data.get("data", [])
                             if results:
                                 hit = results[0]
-                                product_id = hit.get("id", "")
-                                product_url = f"{pharmacy_base}/med.php?id={product_id}" if product_id else ""
-                                img = hit.get("img", "")
-                                image_url = f"{pharmacy_base}/{img}" if img else fallback_image
-                                active = hit.get("active", "")
-                                price = hit.get("price", "")
-                                
-                                logger.info(f"Pharmacy API found '{medicine_name}': product={product_url}")
-                                return {
-                                    "product_url": product_url,
-                                    "image_url": image_url,
-                                    "active": active,
-                                    "price": price,
-                                }
+                                hit_name = hit.get("name", "")
+
+                                # ── Relevance guard ──────────────────────────────────────
+                                # Validate the returned product actually matches what we searched.
+                                # Without this, searching "DA" returns "Dabigatran" and its
+                                # ingredient gets attributed to unrelated products (e.g. roll-on).
+                                query_words = set(w.lower() for w in search_term.split() if len(w) >= 3)
+                                hit_words   = set(w.lower() for w in hit_name.split()   if len(w) >= 3)
+                                overlap = len(query_words & hit_words)
+                                fuzzy_score = fuzz.token_set_ratio(
+                                    search_term.lower(), hit_name.lower()
+                                ) if hit_name else 0
+
+                                # Accept the hit only if there is at least one shared word
+                                # OR the names are fuzzy-similar enough.
+                                if overlap == 0 and fuzzy_score < 55:
+                                    logger.debug(
+                                        "Pharmacy API hit rejected (low relevance): "
+                                        "query=%r hit=%r score=%d overlap=%d",
+                                        search_term, hit_name, fuzzy_score, overlap,
+                                    )
+                                    # Don't break — fall through to generic URL construction
+                                else:
+                                    product_id  = hit.get("id", "")
+                                    product_url = f"{pharmacy_base}/med.php?id={product_id}" if product_id else ""
+                                    img         = hit.get("img", "")
+                                    image_url   = f"{pharmacy_base}/{img}" if img else fallback_image
+                                    active      = hit.get("active", "")
+                                    price       = hit.get("price", "")
+
+                                    logger.info(
+                                        "Pharmacy API found '%s': product=%s (hit=%r, score=%d)",
+                                        medicine_name, product_url, hit_name, fuzzy_score,
+                                    )
+                                    return {
+                                        "product_url": product_url,
+                                        "image_url": image_url,
+                                        "active": active,
+                                        "price": price,
+                                        "hit_name": hit_name,
+                                    }
                     except Exception as e:
-                        logger.debug(f"Pharmacy API failed for '{medicine_name}' on {domain}: {e}")
-                    
+                        logger.debug("Pharmacy API failed for '%s' on %s: %s", medicine_name, domain, e)
+
                     continue  # Move to next URL if dwaprices failed
 
                 # 2. Smart fallback URL construction based on standard e-commerce platforms

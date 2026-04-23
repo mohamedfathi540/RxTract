@@ -59,6 +59,7 @@ class GeminiOCRProvider(OCRInterface):
         generation_config = types.GenerateContentConfig(
             max_output_tokens=max_output_tokens,
             temperature=temperature,
+            tools=[types.Tool(google_search=types.GoogleSearch())]
         )
 
         retries = 3
@@ -119,6 +120,15 @@ class GeminiOCRProvider(OCRInterface):
                 )
 
                 if is_rate_limit and attempt < retries:
+                    # If we hit a rate limit or resource exhaustion, try disabling the search tool
+                    # for the next attempt to save quota and ensure completion.
+                    if "RESOURCE_EXHAUSTED" in str(e) or "429" in str(e):
+                        logger.warning("Gemini OCR quota hit. Disabling Google Search tool for fallback.")
+                        generation_config = types.GenerateContentConfig(
+                            max_output_tokens=max_output_tokens,
+                            temperature=temperature,
+                        )
+                    
                     wait_time = 4 * (2 ** attempt)
                     retry_match = _re.search(
                         r"retry in (\d+(?:\.\d+)?)s", str(e), _re.IGNORECASE

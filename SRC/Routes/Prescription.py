@@ -74,7 +74,7 @@ async def analyze_prescription(request: Request, file: UploadFile,
 
         # Run OCR pipeline
         controller = PrescriptionController(
-            correction_ctrl=getattr(request.app, "correction_ctrl", None)
+            correction_ctrl=getattr(request.app, "correction_ctrl", None),
         )
         result = await controller.analyze_prescription(
             file_path=tmp_file.name,
@@ -243,7 +243,7 @@ async def analyze_prescription_stream(request: Request, file: UploadFile,
 
             # ── Steps 2-4: OCR pipeline (with progress callbacks) ──
             controller = PrescriptionController(
-                correction_ctrl=getattr(request.app, "correction_ctrl", None)
+                correction_ctrl=getattr(request.app, "correction_ctrl", None),
             )
 
             # We use a queue to collect progress events from the controller callback
@@ -472,3 +472,101 @@ async def prescription_chat(request: Request, chat_request: PrescriptionChatRequ
             "ChatHistory": chat_history,
         }
     )
+
+
+@prescription_router.post("/chat-stream")
+@limiter.limit(config_limit("RATE_LIMIT_QUERY"))
+async def prescription_chat_stream(
+    request: Request,
+    chat_request: PrescriptionChatRequest,
+    user=Depends(SecurityController.require_quota("query")),
+):
+    """
+    Streaming variant of /chat — returns the LLM answer word-by-word via SSE.
+
+    SSE event format:
+        data: {"type": "chunk",  "content": "<word> "}
+        data: {"type": "done"}
+        data: {"type": "error",  "message": "<reason>"}
+
+    Note: The answer is currently computed in full before streaming begins
+    (simulated streaming).  To swap to real token-level streaming, replace the
+    word-split loop below with async iteration over the LLM's stream response.
+    """
+    import json
+
+    # ── Prompt Guard: validate input ──────────────────────────────────────────
+    is_safe, reason = SecurityController.validate_input(chat_request.text)
+    if not is_safe:
+        logger.warning("Prompt injection blocked in /chat-stream: %s", reason)
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"Signal": "PROMPT_INJECTION_BLOCKED", "Reason": reason},
+        )
+
+    pid = chat_request.project_id
+
+    # ── Validate project exists ───────────────────────────────────────────────
+    async with request.app.db_client() as session:
+        from sqlalchemy.future import select as sa_select
+        result = await session.execute(
+            sa_select(Project).where(Project.project_id == pid)
+        )
+        project = result.scalar_one_or_none()
+
+    if not project:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"Signal": ResponseSignal.PROJECT_NOT_FOUND.value},
+        )
+
+    async def generate():
+        try:
+            nlp_controller = NLPController(
+                genration_client=request.app.genration_client,
+                embedding_client=request.app.embedding_client,
+                vectordb_client=request.app.vectordb_client,
+                template_parser=request.app.template_parser,
+            )
+
+            answer, _, _ = await nlp_controller.answer_prescription_question(
+                project=project,
+                query=chat_request.text,
+                limit=chat_request.limit,
+            )
+
+            if not answer:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'No answer could be generated.'})}\n\n"
+                return
+
+            # ── Output Guard ──────────────────────────────────────────────────
+            output_safe, output_reason = SecurityController.validate_output(answer)
+            if not output_safe:
+                logger.warning("Output leak blocked in /chat-stream: %s", output_reason)
+                answer = "I can only help with questions about your prescription and medicines."
+
+            # ── Simulated word-by-word stream ─────────────────────────────────
+            # TODO: replace with real token-level streaming once LLM provider
+            #       supports async token iteration (e.g. Gemini streaming API).
+            words = answer.split(" ")
+            for i, word in enumerate(words):
+                chunk = word + (" " if i < len(words) - 1 else "")
+                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+                await asyncio.sleep(0.01)
+
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+        except Exception as e:
+            logger.error("Error in /chat-stream: %s", e, exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'message': 'An unexpected error occurred.'})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
