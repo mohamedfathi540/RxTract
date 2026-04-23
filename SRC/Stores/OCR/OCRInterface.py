@@ -4,9 +4,7 @@ import os
 import re
 import json
 import logging
-
-import cv2
-import numpy as np
+from PIL import Image, ImageEnhance
 
 logger = logging.getLogger(__name__)
 
@@ -143,75 +141,41 @@ class OCRInterface(ABC):
 
             return medicines, ocr_text, "Unknown"
 
-    def preprocess_image(self, file_path: str) -> str:
+    def preprocess_image(self, file_path: str, max_width: int = 600) -> str:
         """
-        Advanced image preprocessing pipeline for OCR.
+        preprocess image to reduce size and prepare for OCR :
+
+        Args:
+            file_path: Path to the image file
+            max_width: Maximum width in pixels (hight auto calculated to maintain ratio)
 
         Steps:
-            1. Read as grayscale
-            2. CLAHE contrast enhancement
-            3. Bilateral filter (edge-preserving denoise)
-            4. Otsu's thresholding (with adaptive fallback)
-            5. Morphological cleanup (remove noise specks)
-            6. Deskew (angle-clamped to ±15°)
-
-        Returns the path to the cleaned image, or the original on failure.
+        1. Convert to greyscale (reduce size and improves OCR)
+        2. Resize to reasonable width while maintaining aspect ratio
+        3. Increase contrast (improve OCR)
         """
         try:
-            # 1. Read image directly as grayscale
-            gray = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
-            if gray is None:
-                logger.warning("Could not read image: %s", file_path)
-                return file_path
+            image = Image.open(file_path)
+            
+            # Convert to greyscale
+            gray_image = image.convert('L')
 
-            # 2. CLAHE contrast enhancement (adaptive histogram equalization)
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-            enhanced = clahe.apply(gray)
+            # Resize if image is too large
+            if gray_image.width > max_width:
+                ratio = max_width / gray_image.width
+                new_height = int(gray_image.height * ratio)
+                resample_filter = getattr(Image, 'Resampling', Image).LANCZOS
+                gray_image = gray_image.resize((max_width, new_height), resample_filter)
 
-            # 3. Edge-preserving denoising (bilateral filter)
-            denoised = cv2.bilateralFilter(enhanced, d=9, sigmaColor=75, sigmaSpace=75)
-
-            # 4. Binarization — try Otsu's first, fall back to adaptive threshold
-            otsu_val, binary = cv2.threshold(
-                denoised, 0, 255,
-                cv2.THRESH_BINARY + cv2.THRESH_OTSU,
-            )
-            # If Otsu picks a poor threshold (too low contrast), use adaptive
-            if otsu_val < 50 or otsu_val > 230:
-                binary = cv2.adaptiveThreshold(
-                    denoised, 255,
-                    cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                    cv2.THRESH_BINARY, 11, 2,
-                )
-
-            # 5. Morphological cleanup — remove small noise specks
-            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
-            cleaned = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
-
-            # 6. Deskew — find skew angle from non-zero pixel coordinates
-            coords = np.column_stack(np.where(cleaned == 0))
-            if len(coords) > 100:  # need enough points for reliable measurement
-                angle = cv2.minAreaRect(coords)[-1]
-                if angle < -45:
-                    angle = -(90 + angle)
-                else:
-                    angle = -angle
-
-                # Only correct small angles (likely scan skew, not rotation)
-                if abs(angle) <= 15:
-                    (h, w) = cleaned.shape[:2]
-                    center = (w // 2, h // 2)
-                    M = cv2.getRotationMatrix2D(center, angle, 1.0)
-                    cleaned = cv2.warpAffine(
-                        cleaned, M, (w, h),
-                        flags=cv2.INTER_CUBIC,
-                        borderMode=cv2.BORDER_REPLICATE,
-                    )
-
+            # Increase contrast
+            enhancer = ImageEnhance.Contrast(gray_image)
+            enhanced_image = enhancer.enhance(1.5)
+            
             dir_name, file_name = os.path.split(file_path)
             output_path = os.path.join(dir_name, f"preprocessed_{file_name}")
-            cv2.imwrite(output_path, cleaned)
-            logger.info("Advanced preprocessing complete: %s → %s", file_path, output_path)
+            
+            enhanced_image.save(output_path)
+            logger.info("Image preprocessing complete: %s → %s", file_path, output_path)
             return output_path
 
         except Exception as e:
