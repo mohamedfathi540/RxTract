@@ -28,13 +28,20 @@ interface SettingsState {
     setProjectId: (id: number) => void;
     toggleTheme: () => void;
     addMessage: (message: ChatMessage) => void;
+    /** Update the content of an existing message by id (used for streaming). */
+    updateMessage: (id: string, content: string) => void;
     clearHistory: () => void;
+    /**
+     * Set the current prescription result.
+     * Automatically clears chat history when the projectId changes so that
+     * old messages about a different prescription don't bleed through.
+     */
     setPrescriptionResult: (result: PrescriptionResult | null) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
     persist(
-        (set) => ({
+        (set, get) => ({
             // Default values
             apiUrl: '/api/v1',
             projectId: 1,
@@ -55,9 +62,23 @@ export const useSettingsStore = create<SettingsState>()(
                 chatHistory: [...state.chatHistory, message].slice(-50), // Keep last 50 messages
             })),
 
+            updateMessage: (id, content) => set((state) => ({
+                chatHistory: state.chatHistory.map((msg) =>
+                    msg.id === id ? { ...msg, content } : msg
+                ),
+            })),
+
             clearHistory: () => set({ chatHistory: [] }),
 
-            setPrescriptionResult: (result) => set({ prescriptionResult: result }),
+            setPrescriptionResult: (result) => set((state) => ({
+                prescriptionResult: result,
+                // Clear chat history when switching to a different prescription so
+                // old messages from a previous analysis don't create confusion.
+                chatHistory:
+                    result?.projectId !== state.prescriptionResult?.projectId
+                        ? []
+                        : state.chatHistory,
+            })),
         }),
         {
             name: 'rxtract-settings',

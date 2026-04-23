@@ -135,3 +135,98 @@ export const chatAboutPrescription = async (
     );
     return response.data;
 };
+
+/** SSE chunk event from the streaming chat endpoint */
+export interface ChatStreamChunk {
+    type: 'chunk' | 'done' | 'error';
+    content?: string;
+    message?: string;
+}
+
+/**
+ * Stream a chat answer about a prescription via Server-Sent Events.
+ *
+ * Mirrors the pattern of analyzePrescriptionStream.
+ *
+ * @returns { abort } — call abort() to cancel mid-stream.
+ */
+export const chatAboutPrescriptionStream = (
+    request: PrescriptionChatRequest,
+    onChunk: (text: string) => void,
+    onDone: () => void,
+    onError: (message: string) => void,
+): { abort: () => void } => {
+    const { apiUrl } = useSettingsStore.getState();
+    const { token } = useAuthStore.getState();
+    const abortController = new AbortController();
+
+    fetch(`${apiUrl}/prescription/chat-stream`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(request),
+        signal: abortController.signal,
+    })
+        .then(async (response) => {
+            if (!response.ok) {
+                const text = await response.text();
+                if (response.status === 429) {
+                    const { useToastStore } = await import('../stores/toastStore');
+                    const { useQuotaStore } = await import('../stores/quotaStore');
+                    let msg = 'Rate limit exceeded. Please try again shortly.';
+                    try { msg = JSON.parse(text).detail || msg; } catch { /* ignore */ }
+                    useToastStore.getState().addToast(msg, 'warning');
+                    useQuotaStore.getState().fetchQuota();
+                    onError(`__RATE_LIMIT__${msg}`);
+                    return;
+                }
+                onError(`Server error: ${response.status} — ${text}`);
+                return;
+            }
+
+            const reader = response.body?.getReader();
+            if (!reader) {
+                onError('Streaming not supported by this browser.');
+                return;
+            }
+
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed.startsWith('data: ')) continue;
+                    try {
+                        const json: ChatStreamChunk = JSON.parse(trimmed.slice(6));
+                        if (json.type === 'chunk' && json.content !== undefined) {
+                            onChunk(json.content);
+                        } else if (json.type === 'done') {
+                            onDone();
+                        } else if (json.type === 'error') {
+                            onError(json.message ?? 'Unknown streaming error.');
+                        }
+                    } catch {
+                        // Ignore malformed SSE lines
+                    }
+                }
+            }
+        })
+        .catch((err) => {
+            if (err.name !== 'AbortError') {
+                onError(err.message || 'Connection failed.');
+            }
+        });
+
+    return { abort: () => abortController.abort() };
+};
+

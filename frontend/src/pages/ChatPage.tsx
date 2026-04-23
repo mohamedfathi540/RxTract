@@ -1,77 +1,119 @@
-import { useState, useRef, useEffect } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { PaperAirplaneIcon } from "@heroicons/react/24/outline";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { PaperAirplaneIcon, StopIcon } from "@heroicons/react/24/outline";
 import ReactMarkdown from "react-markdown";
-import { MessageCircle, ClipboardList, Link as LinkIcon } from "lucide-react";
+import { MessageCircle, ClipboardList, Link as LinkIcon, Lightbulb } from "lucide-react";
 import { useSettingsStore } from "../stores/settingsStore";
-import { chatAboutPrescription } from "../api/prescription";
+import { chatAboutPrescriptionStream } from "../api/prescription";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { generateId, formatDate } from "../utils/helpers";
 import type { ChatMessage } from "../api/types";
 
+// ── Suggested question templates ────────────────────────────────────────────
+const SUGGESTION_TEMPLATES = [
+  "What can I use instead of {med}?",
+  "What are the side effects of {med}?",
+  "Can I take {med} with food?",
+  "Is {med} safe during pregnancy?",
+];
+
 export function ChatPage() {
-  const { prescriptionResult, chatHistory, addMessage, clearHistory } =
+  const { prescriptionResult, chatHistory, addMessage, updateMessage, clearHistory } =
     useSettingsStore();
   const [question, setQuestion] = useState("");
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingId, setStreamingId] = useState<string | null>(null);
+  const abortRef = useRef<(() => void) | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const projectId = prescriptionResult?.projectId ?? null;
 
-  // Auto-scroll to bottom when new messages arrive
+  // Auto-scroll to bottom when messages update
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatHistory]);
 
-  const answerMutation = useMutation({
-    mutationFn: (text: string) => {
-      if (!projectId) throw new Error("No prescription analyzed yet");
-      return chatAboutPrescription({
-        text,
-        limit: 5,
-        project_id: projectId,
-      });
-    },
-    onSuccess: (data) => {
-      const assistantMessage: ChatMessage = {
-        id: generateId(),
-        role: "assistant",
-        content: data.Answer,
-        timestamp: new Date().toISOString(),
-        metadata: {
-          fullPrompt: data.FullPrompt,
-          chatHistory: data.ChatHistory,
-        },
-      };
-      addMessage(assistantMessage);
-    },
-    onError: (error) => {
-      // Rate-limit errors are already shown as a warning toast — skip chat error
-      if (error && 'isRateLimit' in error && (error as any).isRateLimit) return;
-      const errorMessage: ChatMessage = {
-        id: generateId(),
-        role: "assistant",
-        content: `Error: ${error instanceof Error ? error.message : "Failed to get answer"}`,
-        timestamp: new Date().toISOString(),
-      };
-      addMessage(errorMessage);
-    },
-  });
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!question.trim() || answerMutation.isPending || !projectId) return;
-
-    const userMessage: ChatMessage = {
-      id: generateId(),
-      role: "user",
-      content: question,
-      timestamp: new Date().toISOString(),
+  // Cleanup: abort any in-flight stream on unmount
+  useEffect(() => {
+    return () => {
+      abortRef.current?.();
     };
-    addMessage(userMessage);
-    answerMutation.mutate(question);
-    setQuestion("");
+  }, []);
+
+  const handleSubmit = useCallback(
+    (text: string) => {
+      if (!text.trim() || isStreaming || !projectId) return;
+
+      // 1. Add user message
+      const userMsg: ChatMessage = {
+        id: generateId(),
+        role: "user",
+        content: text,
+        timestamp: new Date().toISOString(),
+      };
+      addMessage(userMsg);
+      setQuestion("");
+
+      // 2. Add empty assistant placeholder that will be filled by stream chunks
+      const assistantId = generateId();
+      const placeholderMsg: ChatMessage = {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+        timestamp: new Date().toISOString(),
+      };
+      addMessage(placeholderMsg);
+      setStreamingId(assistantId);
+      setIsStreaming(true);
+
+      let accumulated = "";
+
+      const { abort } = chatAboutPrescriptionStream(
+        { text, limit: 5, project_id: projectId },
+        // onChunk
+        (chunk) => {
+          accumulated += chunk;
+          updateMessage(assistantId, accumulated);
+        },
+        // onDone
+        () => {
+          setIsStreaming(false);
+          setStreamingId(null);
+          abortRef.current = null;
+        },
+        // onError
+        (err) => {
+          if (err.startsWith("__RATE_LIMIT__")) return; // toast already shown
+          updateMessage(assistantId, `Error: ${err}`);
+          setIsStreaming(false);
+          setStreamingId(null);
+          abortRef.current = null;
+        },
+      );
+
+      abortRef.current = abort;
+    },
+    [isStreaming, projectId, addMessage, updateMessage]
+  );
+
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    handleSubmit(question);
   };
+
+  const handleAbort = () => {
+    abortRef.current?.();
+    abortRef.current = null;
+    if (streamingId) {
+      updateMessage(streamingId, "(Response cancelled)");
+    }
+    setIsStreaming(false);
+    setStreamingId(null);
+  };
+
+  // Build suggestion pills from the first medicine in the prescription
+  const firstMed = prescriptionResult?.medicines[0]?.name ?? "this medicine";
+  const suggestions = SUGGESTION_TEMPLATES.map((t) => t.replace("{med}", firstMed));
 
   return (
     <div className="flex flex-col" style={{ height: "calc(100vh - 5rem)" }}>
@@ -90,7 +132,7 @@ export function ChatPage() {
       {!projectId ? (
         <Card className="flex-1 flex items-center justify-center">
           <div className="text-center space-y-3 max-w-md">
-            <ClipboardList className="w-12 h-12 text-text-muted" />
+            <ClipboardList className="w-12 h-12 text-text-muted mx-auto" />
             <p className="text-lg text-text-primary font-medium">
               No Prescription Analyzed Yet
             </p>
@@ -107,7 +149,8 @@ export function ChatPage() {
           {prescriptionResult && prescriptionResult.medicines.length > 0 && (
             <div className="mb-4 bg-primary-600/10 border border-primary-600/30 rounded-xl px-4 py-3">
               <p className="text-sm text-primary-400 font-medium flex items-center gap-1.5">
-                <LinkIcon className="w-4 h-4" /> Chatting about {prescriptionResult.medicines.length} medicine
+                <LinkIcon className="w-4 h-4" /> Chatting about{" "}
+                {prescriptionResult.medicines.length} medicine
                 {prescriptionResult.medicines.length > 1 ? "s" : ""}:{" "}
                 <span className="text-primary-300">
                   {prescriptionResult.medicines.map((m) => m.name).join(", ")}
@@ -121,34 +164,67 @@ export function ChatPage() {
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {chatHistory.length === 0 ? (
-                <div className="flex items-center justify-center h-full">
+                /* Empty state with suggested questions */
+                <div className="flex flex-col items-center justify-center h-full gap-5 px-4">
                   <div className="text-center">
-                    <p className="text-lg mb-2 text-text-primary">
+                    <Lightbulb className="w-8 h-8 text-primary-400 mx-auto mb-2" />
+                    <p className="text-lg font-medium text-text-primary">
                       Ask about your medicines
                     </p>
-                    <p className="text-sm text-text-secondary">
-                      Try: "What can I use instead of {prescriptionResult?.medicines[0]?.name ?? 'this medicine'}?"
+                    <p className="text-sm text-text-secondary mt-1">
+                      Try one of these to get started:
                     </p>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-xl w-full">
+                    {suggestions.map((s) => (
+                      <button
+                        key={s}
+                        id={`suggestion-${s.slice(0, 20).replace(/\s+/g, "-").toLowerCase()}`}
+                        onClick={() => handleSubmit(s)}
+                        disabled={isStreaming}
+                        className="px-3 py-2 text-sm text-left bg-bg-tertiary hover:bg-bg-hover
+                                   border border-border rounded-lg text-text-secondary
+                                   hover:text-text-primary hover:border-primary-600/50
+                                   transition-all duration-150 disabled:opacity-50"
+                      >
+                        {s}
+                      </button>
+                    ))}
                   </div>
                 </div>
               ) : (
                 chatHistory.map((message) => (
                   <div
                     key={message.id}
-                    className={`flex ${message.role === "user" ? "justify-end" : "justify-start"
-                      }`}
+                    className={`flex ${
+                      message.role === "user" ? "justify-end" : "justify-start"
+                    }`}
                   >
                     <div
-                      className={`max-w-[90%] sm:max-w-[85%] rounded-2xl px-3 sm:px-4 py-3 ${message.role === "user"
-                        ? "bg-primary-600 text-white rounded-br-none"
-                        : "bg-bg-tertiary text-text-primary border border-border rounded-bl-none"
-                        }`}
+                      className={`max-w-[90%] sm:max-w-[85%] rounded-2xl px-3 sm:px-4 py-3 ${
+                        message.role === "user"
+                          ? "bg-primary-600 text-white rounded-br-none"
+                          : "bg-bg-tertiary text-text-primary border border-border rounded-bl-none"
+                      }`}
                     >
                       {message.role === "user" ? (
                         <p className="whitespace-pre-wrap">{message.content}</p>
                       ) : (
                         <div className="prose-chat">
-                          <ReactMarkdown>{message.content}</ReactMarkdown>
+                          {message.content === "" && streamingId === message.id ? (
+                            /* Typing indicator while streaming hasn't sent first chunk yet */
+                            <div className="flex items-center gap-1.5 py-1">
+                              <div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce" />
+                              <div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce delay-100" />
+                              <div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce delay-200" />
+                            </div>
+                          ) : (
+                            <ReactMarkdown>{message.content}</ReactMarkdown>
+                          )}
+                          {/* Streaming cursor */}
+                          {streamingId === message.id && message.content && (
+                            <span className="inline-block w-0.5 h-4 bg-primary-400 ml-0.5 animate-pulse align-middle" />
+                          )}
                         </div>
                       )}
                       <span className="text-xs opacity-70 mt-2 block">
@@ -158,17 +234,6 @@ export function ChatPage() {
                   </div>
                 ))
               )}
-              {answerMutation.isPending && (
-                <div className="flex justify-start">
-                  <div className="bg-bg-tertiary border border-border rounded-2xl rounded-bl-none px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 bg-primary-600 rounded-full animate-bounce" />
-                      <div className="w-2 h-2 bg-primary-600 rounded-full animate-bounce delay-100" />
-                      <div className="w-2 h-2 bg-primary-600 rounded-full animate-bounce delay-200" />
-                    </div>
-                  </div>
-                </div>
-              )}
               <div ref={messagesEndRef} />
             </div>
 
@@ -176,30 +241,43 @@ export function ChatPage() {
             <div className="border-t border-border p-4 bg-bg-secondary">
               {chatHistory.length > 0 && (
                 <div className="mb-3 flex justify-end">
-                  <Button variant="ghost" size="sm" onPress={clearHistory}>
+                  <Button variant="ghost" size="sm" onPress={clearHistory} isDisabled={isStreaming}>
                     Clear History
                   </Button>
                 </div>
               )}
 
-              {/* Input Form */}
-              <form onSubmit={handleSubmit} className="flex gap-2">
+              <form onSubmit={handleFormSubmit} className="flex gap-2">
                 <input
                   type="text"
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
                   placeholder="Ask about your medicines..."
-                  disabled={answerMutation.isPending}
-                  className="flex-1 min-w-0 px-3 sm:px-4 py-3 bg-bg-tertiary border border-border rounded-md text-text-primary placeholder-text-muted focus:outline-none focus:border-primary-600 disabled:opacity-50 transition-all text-base"
+                  disabled={isStreaming}
+                  className="flex-1 min-w-0 px-3 sm:px-4 py-3 bg-bg-tertiary border border-border rounded-md
+                             text-text-primary placeholder-text-muted focus:outline-none
+                             focus:border-primary-600 disabled:opacity-50 transition-all text-base"
                 />
-                <Button
-                  type="submit"
-                  isLoading={answerMutation.isPending}
-                  isDisabled={!question.trim()}
-                >
-                  <PaperAirplaneIcon className="w-5 h-5" />
-                  Send
-                </Button>
+                {isStreaming ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onPress={handleAbort}
+                    className="shrink-0"
+                  >
+                    <StopIcon className="w-5 h-5" />
+                    Stop
+                  </Button>
+                ) : (
+                  <Button
+                    type="submit"
+                    isDisabled={!question.trim() || !projectId}
+                    className="shrink-0"
+                  >
+                    <PaperAirplaneIcon className="w-5 h-5" />
+                    Send
+                  </Button>
+                )}
               </form>
             </div>
           </div>
