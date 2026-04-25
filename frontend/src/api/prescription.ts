@@ -1,4 +1,5 @@
-import type { PrescriptionResponse, PrescriptionChatRequest, PrescriptionChatResponse } from './types';
+import type { PrescriptionResponse, PrescriptionChatRequest, PrescriptionChatResponse, HistoryItem } from './types';
+import axios from 'axios';
 import { apiClient, uploadFileWithProgress } from './client';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useAuthStore } from '../stores/authStore';
@@ -230,3 +231,37 @@ export const chatAboutPrescriptionStream = (
     return { abort: () => abortController.abort() };
 };
 
+export const fetchHistory = async (): Promise<HistoryItem[]> => {
+    const response = await apiClient.get<{ signal: string; history: HistoryItem[] }>('/prescription/history');
+    return response.data.history || [];
+};
+
+export const renameItem = async (id: string, title: string): Promise<void> => {
+    await apiClient.patch(`/prescription/${id}/rename`, { title });
+};
+
+export const togglePin = async (id: string): Promise<boolean> => {
+    const response = await apiClient.patch<{ signal: string; is_pinned: boolean }>(`/prescription/${id}/pin`);
+    return response.data.is_pinned;
+};
+
+export const deleteItem = async (id: string): Promise<void> => {
+    await apiClient.delete(`/prescription/${id}`);
+};
+
+export const shareItem = async (id: string): Promise<string> => {
+    const response = await apiClient.post<{ signal: string; share_token: string }>(`/prescription/${id}/share`);
+    return response.data.share_token;
+};
+
+export const fetchPrescription = async (id: string): Promise<PrescriptionResponse> => {
+    const response = await apiClient.get<PrescriptionResponse>(`/prescription/${id}`);
+    return response.data;
+};
+
+export const fetchSharedPrescription = async (token: string): Promise<PrescriptionResponse> => {
+    // Use axios directly to bypass the auth interceptor so unauthenticated users can access it
+    const { apiUrl } = useSettingsStore.getState();
+    const response = await axios.get<PrescriptionResponse>(`${apiUrl}/prescription/shared/${token}`);
+    return response.data;
+};

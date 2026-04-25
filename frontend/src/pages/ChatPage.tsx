@@ -3,7 +3,8 @@ import { PaperAirplaneIcon, StopIcon } from "@heroicons/react/24/outline";
 import ReactMarkdown from "react-markdown";
 import { MessageCircle, ClipboardList, Link as LinkIcon, Lightbulb } from "lucide-react";
 import { useSettingsStore } from "../stores/settingsStore";
-import { chatAboutPrescriptionStream } from "../api/prescription";
+import { useParams } from "react-router-dom";
+import { chatAboutPrescriptionStream, fetchPrescription } from "../api/prescription";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { generateId, formatDate } from "../utils/helpers";
@@ -20,13 +21,43 @@ const SUGGESTION_TEMPLATES = [
 export function ChatPage() {
   const { prescriptionResult, chatHistory, addMessage, updateMessage, clearHistory } =
     useSettingsStore();
+  const { id: routeId } = useParams<{ id: string }>();
   const [question, setQuestion] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingId, setStreamingId] = useState<string | null>(null);
+  const [isLoadingPrescription, setIsLoadingPrescription] = useState(false);
   const abortRef = useRef<(() => void) | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const projectId = prescriptionResult?.projectId ?? null;
+
+  // Load prescription if routeId changes and doesn't match current projectId
+  useEffect(() => {
+    if (routeId && routeId !== String(projectId)) {
+      const loadData = async () => {
+        setIsLoadingPrescription(true);
+        try {
+          const data = await fetchPrescription(routeId);
+          useSettingsStore.setState({ 
+            prescriptionResult: {
+              ocrText: data.ocr_text,
+              projectId: data.project_id,
+              previewDataUrl: data.image_url ? `${useSettingsStore.getState().apiUrl.replace(/\/api\/v1\/?$/, '')}${data.image_url}` : null,
+              medicines: data.medicines,
+              signal: data.signal,
+              doctorSpecialty: data.doctor_specialty
+            }, 
+            chatHistory: [] 
+          });
+        } catch (error) {
+          console.error("Failed to load prescription", error);
+        } finally {
+          setIsLoadingPrescription(false);
+        }
+      };
+      loadData();
+    }
+  }, [routeId, projectId]);
 
   // Auto-scroll to bottom when messages update
   useEffect(() => {
@@ -129,7 +160,7 @@ export function ChatPage() {
       </div>
 
       {/* No Prescription Prompt */}
-      {!projectId ? (
+      {!projectId && !isLoadingPrescription ? (
         <Card className="flex-1 flex items-center justify-center">
           <div className="text-center space-y-3 max-w-md">
             <ClipboardList className="w-12 h-12 text-text-muted mx-auto" />
@@ -141,6 +172,13 @@ export function ChatPage() {
               upload and analyze a prescription. Once analyzed, you can come back
               here to chat about the medicines.
             </p>
+          </div>
+        </Card>
+      ) : isLoadingPrescription ? (
+        <Card className="flex-1 flex items-center justify-center">
+          <div className="text-center space-y-3">
+            <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto" />
+            <p className="text-text-secondary">Loading prescription data...</p>
           </div>
         </Card>
       ) : (

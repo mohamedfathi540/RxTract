@@ -1,5 +1,7 @@
-import { useState, useRef, useCallback } from "react";
-import { analyzePrescriptionStream } from "../api/prescription";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { useParams, Link, useNavigate } from "react-router-dom";
+import { analyzePrescriptionStream, fetchPrescription } from "../api/prescription";
+import { useHistoryStore } from "../stores/historyStore";
 import type { OcrProgressEvent } from "../api/prescription";
 import type { MedicineInfo } from "../api/types";
 import { Button } from "../components/ui/Button";
@@ -50,7 +52,10 @@ const PIPELINE_STEPS = [
 ];
 
 export function PrescriptionPage() {
+    const { id: routeId } = useParams<{ id: string }>();
     const { prescriptionResult, setPrescriptionResult } = useSettingsStore();
+    const { fetchHistory } = useHistoryStore();
+    const navigate = useNavigate();
 
     const [file, setFile] = useState<File | null>(null);
     const [previewUrl, setPreviewUrl] = useState<string | null>(
@@ -76,7 +81,53 @@ export function PrescriptionPage() {
     );
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isDragging, setIsDragging] = useState(false);
+    const [isImageModalOpen, setIsImageModalOpen] = useState(false);
     const abortRef = useRef<{ abort: () => void } | null>(null);
+
+    useEffect(() => {
+        if (routeId && routeId !== String(prescriptionResult?.projectId)) {
+            const loadData = async () => {
+                setIsAnalyzing(true);
+                setCurrentStep("loading");
+                setStepDetail("Loading prescription...");
+                try {
+                    const data = await fetchPrescription(routeId);
+                    const parsedPreviewUrl = data.image_url ? `${useSettingsStore.getState().apiUrl.replace(/\/api\/v1\/?$/, '')}${data.image_url}` : null;
+
+                    setOcrText(data.ocr_text);
+                    setMedicines(data.medicines);
+                    setSignal(data.signal);
+                    setDoctorSpecialty(data.doctor_specialty || "Unknown");
+                    setPreviewUrl(parsedPreviewUrl);
+
+                    setPrescriptionResult({
+                        ocrText: data.ocr_text,
+                        projectId: data.project_id,
+                        previewDataUrl: parsedPreviewUrl,
+                        medicines: data.medicines,
+                        signal: data.signal,
+                        doctorSpecialty: data.doctor_specialty || "Unknown"
+                    });
+                } catch (error) {
+                    console.error("Failed to load prescription", error);
+                    setError("Failed to load prescription data");
+                } finally {
+                    setIsAnalyzing(false);
+                    setCurrentStep("");
+                    setStepDetail("");
+                }
+            };
+            loadData();
+        } else if (routeId && routeId === String(prescriptionResult?.projectId)) {
+            if (prescriptionResult) {
+                setOcrText(prescriptionResult.ocrText);
+                setMedicines(prescriptionResult.medicines);
+                setSignal(prescriptionResult.signal);
+                setDoctorSpecialty(prescriptionResult.doctorSpecialty || "Unknown");
+                setPreviewUrl(prescriptionResult.previewDataUrl);
+            }
+        }
+    }, [routeId, prescriptionResult?.projectId]);
 
     const handleFile = useCallback(async (f: File) => {
         setFile(f);
@@ -136,6 +187,9 @@ export function PrescriptionPage() {
                     projectId: newProjectId,
                     doctorSpecialty: newDoctorSpecialty,
                 });
+
+                // Refresh history so the new prescription shows up immediately
+                fetchHistory();
             },
             // onError
             (errorMsg) => {
@@ -165,6 +219,7 @@ export function PrescriptionPage() {
         setStepDetail("");
         setProgressPercent(0);
         setPrescriptionResult(null);
+        navigate("/prescription");
     };
 
     /** Get the visual state of a pipeline step */
@@ -222,7 +277,11 @@ export function PrescriptionPage() {
                         <img
                             src={previewUrl}
                             alt="Prescription preview"
-                            className="max-h-64 mx-auto rounded-lg shadow-lg"
+                            className="max-h-64 mx-auto rounded-lg shadow-lg cursor-pointer hover:opacity-90 transition-opacity"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setIsImageModalOpen(true);
+                            }}
                         />
                         <div className="flex items-center justify-center gap-3">
                             <p className="text-sm text-text-secondary flex items-center gap-1">
@@ -301,10 +360,10 @@ export function PrescriptionPage() {
                                 <div
                                     key={step.key}
                                     className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-300 ${state === "active"
-                                            ? "bg-primary-600/15 border border-primary-600/30"
-                                            : state === "done"
-                                                ? "bg-green-500/10"
-                                                : "opacity-40"
+                                        ? "bg-primary-600/15 border border-primary-600/30"
+                                        : state === "done"
+                                            ? "bg-green-500/10"
+                                            : "opacity-40"
                                         }`}
                                 >
                                     {/* Status icon */}
@@ -320,10 +379,10 @@ export function PrescriptionPage() {
                                     {/* Label */}
                                     <span
                                         className={`text-sm font-medium ${state === "active"
-                                                ? "text-primary-400"
-                                                : state === "done"
-                                                    ? "text-green-400"
-                                                    : "text-text-muted"
+                                            ? "text-primary-400"
+                                            : state === "done"
+                                                ? "text-green-400"
+                                                : "text-text-muted"
                                             }`}
                                     >
                                         {step.label}
@@ -354,20 +413,17 @@ export function PrescriptionPage() {
 
             {/* Error / Warning */}
             {error && (
-                <div className={`rounded-xl p-4 ${
-                    error.startsWith('__RATE_LIMIT__')
+                <div className={`rounded-xl p-4 ${error.startsWith('__RATE_LIMIT__')
                         ? 'bg-yellow-500/10 border border-yellow-500/30'
                         : 'bg-red-500/10 border border-red-500/30'
-                }`}>
-                    <p className={`font-medium ${
-                        error.startsWith('__RATE_LIMIT__') ? 'text-yellow-400' : 'text-red-400'
                     }`}>
+                    <p className={`font-medium ${error.startsWith('__RATE_LIMIT__') ? 'text-yellow-400' : 'text-red-400'
+                        }`}>
                         <AlertTriangle className="w-4 h-4 inline mr-1" />
                         {error.startsWith('__RATE_LIMIT__') ? 'Quota Limit' : 'Error'}
                     </p>
-                    <p className={`text-sm mt-1 ${
-                        error.startsWith('__RATE_LIMIT__') ? 'text-yellow-300' : 'text-red-300'
-                    }`}>
+                    <p className={`text-sm mt-1 ${error.startsWith('__RATE_LIMIT__') ? 'text-yellow-300' : 'text-red-300'
+                        }`}>
                         {error.startsWith('__RATE_LIMIT__') ? error.slice(14) : error}
                     </p>
                 </div>
@@ -510,12 +566,16 @@ export function PrescriptionPage() {
 
                     {/* Tip to use Chat */}
                     {prescriptionResult?.projectId && (
-                        <div className="bg-primary-600/10 border border-primary-600/30 rounded-xl p-4">
-                            <p className="text-primary-400 font-medium flex items-center gap-1.5"><MessageCircle className="w-4 h-4" /> Chat Available</p>
-                            <p className="text-primary-300/80 text-sm mt-1">
-                                Go to the <strong>Chat</strong> page to ask questions about these
-                                medicines — find replacements, check interactions, and more.
-                            </p>
+                        <div className="bg-primary-600/10 border border-primary-600/30 rounded-xl p-4 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+                            <div>
+                                <p className="text-primary-400 font-medium flex items-center gap-1.5"><MessageCircle className="w-4 h-4" /> Chat Available</p>
+                                <p className="text-primary-300/80 text-sm mt-1">
+                                    Ask questions about these medicines — find replacements, check interactions, and more.
+                                </p>
+                            </div>
+                            <Link to={`/chat/${prescriptionResult.projectId}`} className="shrink-0 bg-primary-600 hover:bg-primary-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+                                Open Chat
+                            </Link>
                         </div>
                     )}
                 </div>
@@ -553,6 +613,30 @@ export function PrescriptionPage() {
                             </pre>
                         </div>
                     )}
+                </div>
+            )}
+
+            {/* Full Image Modal */}
+            {isImageModalOpen && previewUrl && (
+                <div
+                    className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+                    onClick={() => setIsImageModalOpen(false)}
+                >
+                    <div className="relative max-w-7xl max-h-full w-full flex flex-col items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                        <button
+                            className="absolute top-4 right-4 p-2 bg-black/50 hover:bg-black/80 rounded-full text-white transition-colors z-10"
+                            onClick={() => setIsImageModalOpen(false)}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                        <img
+                            src={previewUrl}
+                            alt="Full prescription"
+                            className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
+                        />
+                    </div>
                 </div>
             )}
         </div>
