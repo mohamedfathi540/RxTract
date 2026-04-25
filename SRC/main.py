@@ -3,6 +3,7 @@ import logging
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -29,8 +30,14 @@ from Utils.MedicineMatcher import MedicineMatcher
 
 logger = logging.getLogger("uvicorn.error")
 
+import os
+
 # ── Create FastAPI instance ─────────────────────────────────────────
 app = FastAPI()
+
+UPLOAD_DIR = "/srv/dev-disk-by-uuid-e6e20b12-66d3-46ae-b011-1613226205a5/rxtract_uploads"
+os.makedirs(f"{UPLOAD_DIR}/prescriptions", exist_ok=True)
+app.mount("/api/v1/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 # Rate-limit middleware & error handler
 app.state.limiter = limiter

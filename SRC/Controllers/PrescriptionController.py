@@ -203,6 +203,35 @@ class PrescriptionController(basecontroller):
                                 logger.info("Batch Correction: '%s' → '%s'", m["name"], res["name"])
                                 m["name"] = res["name"]
 
+            # --- Post-LLM Typo Correction ---
+            if self.medicine_matcher and self.medicine_matcher.medicines:
+                from thefuzz import process, fuzz
+                for m in medicines_raw:
+                    current_name = m["name"]
+                    
+                    # Strip dosage at the end for a fair typo comparison
+                    q_clean = re.sub(
+                        r'\s*\d+\s*(mg|gm|g|ml|mcg|iu|%|units?)(\s*/\s*\d+\s*(mg|gm|g|ml|mcg))?\s*$',
+                        '', current_name.lower(), flags=re.IGNORECASE
+                    ).strip()
+                    target_name = q_clean if q_clean else current_name.lower()
+                    
+                    # Use a strict Levenshtein ratio to ONLY fix minor typos of the SAME medicine.
+                    # This prevents replacing "close" names with "faraway" names via token_set_ratio.
+                    result = process.extractOne(target_name, self.medicine_matcher.medicines, scorer=fuzz.ratio)
+                    
+                    if result and result[1] >= 85:  # 85 is strict enough to only catch typos
+                        best_match = self.medicine_matcher.medicine_map.get(result[0].lower(), result[0])
+                        if best_match.lower() != current_name.lower():
+                            logger.info("Typo Correction: '%s' (clean: '%s') → '%s' (score: %d)", current_name, target_name, best_match, result[1])
+                            m["name"] = best_match
+                        
+                    # Opportunistically fill in active ingredient if still unknown
+                    if m.get("active_ingredient", "Unknown").lower() == "unknown":
+                        fuzzy_active = self.medicine_matcher.get_active_ingredient(m["name"])
+                        if fuzzy_active:
+                            m["active_ingredient"] = fuzzy_active
+
             # --- Enrichment ---
             medicines = await self._enrich_medicines(
                 medicines_raw,

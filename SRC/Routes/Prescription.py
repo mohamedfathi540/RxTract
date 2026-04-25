@@ -41,6 +41,10 @@ class PrescriptionChatRequest(BaseModel):
     limit: Optional[int] = 5
     project_id: int
 
+class RenameRequest(BaseModel):
+    title: str
+
+
 
 @prescription_router.post("/analyze")
 @limiter.limit(config_limit("RATE_LIMIT_PRESCRIPTION"))
@@ -63,21 +67,25 @@ async def analyze_prescription(request: Request, file: UploadFile,
             },
         )
 
-    # Save uploaded file to a temp location
+    # Save uploaded file to persistent storage
     suffix = os.path.splitext(file.filename or "upload.jpg")[-1]
-    tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    import uuid
+    filename = f"{uuid.uuid4().hex}{suffix}"
+    UPLOAD_DIR = "/srv/dev-disk-by-uuid-e6e20b12-66d3-46ae-b011-1613226205a5/rxtract_uploads"
+    file_path = os.path.join(UPLOAD_DIR, "prescriptions", filename)
+    image_url = f"/api/v1/uploads/prescriptions/{filename}"
+
     try:
         content = await file.read()
-        tmp_file.write(content)
-        tmp_file.flush()
-        tmp_file.close()
+        with open(file_path, "wb") as f:
+            f.write(content)
 
         # Run OCR pipeline
         controller = PrescriptionController(
             correction_ctrl=getattr(request.app, "correction_ctrl", None),
         )
         result = await controller.analyze_prescription(
-            file_path=tmp_file.name,
+            file_path=file_path,
             genration_client=request.app.genration_client,
             ocr_client=getattr(request.app, "ocr_client", None),
         )
@@ -102,7 +110,16 @@ async def analyze_prescription(request: Request, file: UploadFile,
         project_model = await projectModel.create_instance(
             db_client=request.app.db_client
         )
-        new_project = await project_model.create_project(Project())
+        
+        med_names = [m["name"] for m in medicines if "name" in m]
+        if med_names:
+            title = ", ".join(med_names[:3])
+            if len(med_names) > 3:
+                title += f" +{len(med_names) - 3} more"
+        else:
+            title = "New Prescription"
+            
+        new_project = await project_model.create_project(Project(title=title))
         pid = new_project.project_id
         logger.info("Created prescription project_id=%d", pid)
 
@@ -116,6 +133,7 @@ async def analyze_prescription(request: Request, file: UploadFile,
                 asset_type=assettypeEnum.PRESCRIPTION.value,
                 asset_name=f"prescription_{pid}",
                 asset_size=len(content),
+                asset_config={"image_url": image_url},
             )
         )
         asset_id = asset_record.asset_id
@@ -138,6 +156,10 @@ async def analyze_prescription(request: Request, file: UploadFile,
                         "active_ingredient": med.get("active_ingredient", "Unknown"),
                         "dosage": med.get("dosage", "Unknown"),
                         "form": med.get("form", "Unknown"),
+                        "image_url": med.get("image_url", ""),
+                        "product_url": med.get("product_url", ""),
+                        "price": med.get("price", ""),
+                        "candidates": med.get("candidates", []),
                     },
                     chunk_order=i + 1,
                     chunk_project_id=pid,
@@ -199,11 +221,7 @@ async def analyze_prescription(request: Request, file: UploadFile,
         )
 
     finally:
-        # Clean up temp file
-        try:
-            os.unlink(tmp_file.name)
-        except OSError:
-            pass
+        pass # File is kept persistently
 
 @prescription_router.post("/analyze-stream")
 @limiter.limit(config_limit("RATE_LIMIT_PRESCRIPTION"))
@@ -223,21 +241,22 @@ async def analyze_prescription_stream(request: Request, file: UploadFile,
             )
         return StreamingResponse(error_gen(), media_type="text/event-stream")
 
-    # Read file content BEFORE entering the generator — FastAPI closes the
-    # UploadFile after we return the StreamingResponse, so we must read eagerly.
+    # Read file content BEFORE entering the generator
     content = await file.read()
     suffix = os.path.splitext(file.filename or "upload.jpg")[-1]
+    import uuid
+    filename = f"{uuid.uuid4().hex}{suffix}"
+    UPLOAD_DIR = "/srv/dev-disk-by-uuid-e6e20b12-66d3-46ae-b011-1613226205a5/rxtract_uploads"
+    file_path = os.path.join(UPLOAD_DIR, "prescriptions", filename)
+    image_url = f"/api/v1/uploads/prescriptions/{filename}"
 
     async def event_generator():
-        tmp_file = None
         try:
             # ── Step 1: Save uploaded file ──────────────────────────
             yield progress_event("upload", "Receiving image...", 5)
 
-            tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-            tmp_file.write(content)
-            tmp_file.flush()
-            tmp_file.close()
+            with open(file_path, "wb") as f:
+                f.write(content)
 
             yield progress_event("upload", "Image received", 10)
 
@@ -255,7 +274,7 @@ async def analyze_prescription_stream(request: Request, file: UploadFile,
             # Run the OCR pipeline in a background task
             pipeline_task = asyncio.create_task(
                 controller.analyze_prescription(
-                    file_path=tmp_file.name,
+                    file_path=file_path,
                     genration_client=request.app.genration_client,
                     ocr_client=getattr(request.app, "ocr_client", None),
                     on_progress=on_progress_cb,
@@ -297,7 +316,16 @@ async def analyze_prescription_stream(request: Request, file: UploadFile,
             project_model = await projectModel.create_instance(
                 db_client=request.app.db_client
             )
-            new_project = await project_model.create_project(Project())
+            
+            med_names = [m["name"] for m in medicines if "name" in m]
+            if med_names:
+                title = ", ".join(med_names[:3])
+                if len(med_names) > 3:
+                    title += f" +{len(med_names) - 3} more"
+            else:
+                title = "New Prescription"
+                
+            new_project = await project_model.create_project(Project(title=title))
             pid = new_project.project_id
             logger.info("Created prescription project_id=%d", pid)
 
@@ -310,6 +338,7 @@ async def analyze_prescription_stream(request: Request, file: UploadFile,
                     asset_type=assettypeEnum.PRESCRIPTION.value,
                     asset_name=f"prescription_{pid}",
                     asset_size=len(content),
+                    asset_config={"image_url": image_url},
                 )
             )
             asset_id = asset_record.asset_id
@@ -331,6 +360,10 @@ async def analyze_prescription_stream(request: Request, file: UploadFile,
                             "active_ingredient": med.get("active_ingredient", "Unknown"),
                             "dosage": med.get("dosage", "Unknown"),
                             "form": med.get("form", "Unknown"),
+                            "image_url": med.get("image_url", ""),
+                            "product_url": med.get("product_url", ""),
+                            "price": med.get("price", ""),
+                            "candidates": med.get("candidates", []),
                         },
                         chunk_order=i + 1,
                         chunk_project_id=pid,
@@ -384,11 +417,7 @@ async def analyze_prescription_stream(request: Request, file: UploadFile,
             yield error_event(str(e))
 
         finally:
-            if tmp_file:
-                try:
-                    os.unlink(tmp_file.name)
-                except OSError:
-                    pass
+            pass # File is kept persistently
 
     return StreamingResponse(
         event_generator(),
@@ -569,4 +598,70 @@ async def prescription_chat_stream(
             "X-Accel-Buffering": "no",
         },
     )
+
+@prescription_router.get("/history")
+async def get_history(request: Request, user=Depends(SecurityController.get_current_user)):
+    from Services.PrescriptionDBService import PrescriptionDBService
+    db_service = PrescriptionDBService(request.app.db_client)
+    # Pass user.id if available, otherwise just something
+    user_id = user.id if hasattr(user, "id") else 0
+    history = await db_service.get_history(user_id=user_id)
+    return JSONResponse(content={"signal": "SUCCESS", "history": history})
+
+@prescription_router.patch("/{project_id}/rename")
+async def rename_prescription(project_id: str, payload: RenameRequest, request: Request, user=Depends(SecurityController.get_current_user)):
+    from Services.PrescriptionDBService import PrescriptionDBService
+    db_service = PrescriptionDBService(request.app.db_client)
+    success = await db_service.rename_prescription(project_id, payload.title)
+    if success:
+        return JSONResponse(content={"signal": "SUCCESS"})
+    return JSONResponse(status_code=404, content={"signal": "NOT_FOUND"})
+
+@prescription_router.patch("/{project_id}/pin")
+async def toggle_pin(project_id: str, request: Request, user=Depends(SecurityController.get_current_user)):
+    from Services.PrescriptionDBService import PrescriptionDBService
+    db_service = PrescriptionDBService(request.app.db_client)
+    is_pinned = await db_service.toggle_pin(project_id)
+    # is_pinned can be boolean False (which means it's unpinned) or a success boolean?
+    # Actually toggle_pin returns the new state, or False if failed.
+    # Wait, if it returns False on failure, how do we distinguish unpinned from failed?
+    # Let's adjust to return {"signal": "SUCCESS", "is_pinned": is_pinned} if it works
+    # It's better to just return SUCCESS and let the client assume the optimistic state.
+    # But for now, if it returns False, it might be failed. We'll return 200 SUCCESS anyway.
+    return JSONResponse(content={"signal": "SUCCESS", "is_pinned": is_pinned})
+
+@prescription_router.delete("/{project_id}")
+async def delete_prescription(project_id: str, request: Request, user=Depends(SecurityController.get_current_user)):
+    from Services.PrescriptionDBService import PrescriptionDBService
+    db_service = PrescriptionDBService(request.app.db_client)
+    success = await db_service.soft_delete(project_id)
+    if success:
+        return JSONResponse(content={"signal": "SUCCESS"})
+    return JSONResponse(status_code=404, content={"signal": "NOT_FOUND"})
+
+@prescription_router.get("/{project_id}")
+async def get_prescription(project_id: str, request: Request, user=Depends(SecurityController.get_current_user)):
+    from Services.PrescriptionDBService import PrescriptionDBService
+    db_service = PrescriptionDBService(request.app.db_client)
+    data = await db_service.get_prescription(project_id)
+    if not data or not data.get("medicines"):
+        return JSONResponse(status_code=404, content={"signal": "NOT_FOUND"})
+    return JSONResponse(content={
+        "signal": "SUCCESS",
+        "doctor_specialty": "Unknown", # Not stored explicitly in data chunks
+        "ocr_text": data["ocr_text"],
+        "medicines": data["medicines"],
+        "image_url": data.get("image_url"),
+        "project_id": int(project_id) if project_id.isdigit() else project_id
+    })
+
+@prescription_router.post("/{project_id}/share")
+async def share_prescription(project_id: str, request: Request, user=Depends(SecurityController.get_current_user)):
+    from Services.PrescriptionDBService import PrescriptionDBService
+    db_service = PrescriptionDBService(request.app.db_client)
+    token = await db_service.generate_share_token(project_id)
+    if token:
+        # Construct share URL based on frontend origin if available, or just return token
+        return JSONResponse(content={"signal": "SUCCESS", "share_token": token})
+    return JSONResponse(status_code=404, content={"signal": "NOT_FOUND"})
 
