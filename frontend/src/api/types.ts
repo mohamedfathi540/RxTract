@@ -102,6 +102,7 @@ export interface MedicineInfo {
     form: string | null;
     image_url: string | null;
     product_url: string | null;
+    price?: string;
     candidates?: Candidate[];
 }
 
@@ -111,6 +112,8 @@ export interface PrescriptionResponse {
     ocr_text: string;
     medicines: MedicineInfo[];
     project_id: number | null;
+    image_url?: string;
+    project_title?: string;
 }
 
 export interface PrescriptionChatRequest {
@@ -160,4 +163,13 @@ export interface SearchMedicineResult {
 
 export interface SearchMedicineResponse {
     results: SearchMedicineResult[];
+}
+
+export interface HistoryItem {
+    id: string;
+    title: string;
+    is_pinned: boolean;
+    created_at: string | null;
+    updated_at: string | null;
+    share_token?: string | null;
 }
