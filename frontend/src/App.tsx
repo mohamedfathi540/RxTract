@@ -7,6 +7,7 @@ import { PrescriptionPage } from "./pages/PrescriptionPage";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { VerifyEmailPage } from "./pages/VerifyEmailPage";
+import { SharedPrescriptionPage } from "./pages/SharedPrescriptionPage";
 import { useAuthStore } from "./stores/authStore";
 import { ToastContainer } from "./components/ui/ToastContainer";
 
@@ -60,6 +61,7 @@ function App() {
             }
           />
           <Route path="/verify-email" element={<VerifyEmailPage />} />
+          <Route path="/shared/:token" element={<SharedPrescriptionPage />} />
 
           {/* ── Protected app routes ──────────────────────── */}
           <Route
@@ -71,8 +73,10 @@ function App() {
             }
           >
             <Route index element={<ChatPage />} />
+            <Route path="chat/:id" element={<ChatPage />} />
             <Route path="search" element={<SearchPage />} />
             <Route path="prescription" element={<PrescriptionPage />} />
+            <Route path="prescription/:id" element={<PrescriptionPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
