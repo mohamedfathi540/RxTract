@@ -1,16 +1,17 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   ChatBubbleLeftRightIcon,
-  MagnifyingGlassIcon,
   DocumentTextIcon,
   ArrowRightStartOnRectangleIcon,
 } from "@heroicons/react/24/outline";
 import { Menu, X } from "lucide-react";
 import { Logo } from "../ui/Logo";
 import { useAuthStore } from "../../stores/authStore";
-import { Button } from "../ui/Button";
 import { QuotaPanel } from "../ui/QuotaPanel";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
+import { useHistoryStore } from "../../stores/historyStore";
+import { HistoryItem } from "../sidebar/HistoryItem";
+import { isToday, isYesterday, isWithinInterval, subDays } from "date-fns";
 
 const navigation = [
   { name: "Prescription", href: "/prescription", icon: DocumentTextIcon },
@@ -44,6 +45,41 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, [isOpen, onToggle]);
+
+  const { items, fetchHistory, isLoading } = useHistoryStore();
+
+  useEffect(() => {
+    fetchHistory();
+  }, [fetchHistory]);
+
+  const pinnedItems = useMemo(() => items.filter((i) => i.is_pinned), [items]);
+  
+  const recentGroups = useMemo(() => {
+    const unpinned = items.filter((i) => !i.is_pinned);
+    const today: typeof items = [];
+    const yesterday: typeof items = [];
+    const previous7Days: typeof items = [];
+    const older: typeof items = [];
+
+    const now = new Date();
+    const sevenDaysAgo = subDays(now, 7);
+
+    unpinned.forEach((item) => {
+      if (!item.updated_at) return;
+      const date = new Date(item.updated_at);
+      if (isToday(date)) today.push(item);
+      else if (isYesterday(date)) yesterday.push(item);
+      else if (isWithinInterval(date, { start: sevenDaysAgo, end: now })) previous7Days.push(item);
+      else older.push(item);
+    });
+
+    return [
+      { label: "Today", data: today },
+      { label: "Yesterday", data: yesterday },
+      { label: "Previous 7 Days", data: previous7Days },
+      { label: "Older", data: older },
+    ].filter((g) => g.data.length > 0);
+  }, [items]);
 
   return (
     <>
@@ -105,7 +141,6 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
               key={item.name}
               to={item.href}
               onClick={() => {
-                // Close sidebar on mobile after clicking a link
                 if (window.innerWidth < 768) onToggle();
               }}
               className={({ isActive }) =>
@@ -119,6 +154,48 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
               <span className="truncate">{item.name}</span>
             </NavLink>
           ))}
+
+          <div className="pt-4 mt-2">
+            {pinnedItems.length > 0 && (
+              <div className="mb-4">
+                <h3 className="px-3 text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">
+                  Pinned
+                </h3>
+                {pinnedItems.map((item) => (
+                  <HistoryItem
+                    key={item.id}
+                    item={item}
+                    onItemClick={() => {
+                      if (window.innerWidth < 768) onToggle();
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+
+            {recentGroups.map((group) => (
+              <div key={group.label} className="mb-4">
+                <h3 className="px-3 text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">
+                  {group.label}
+                </h3>
+                {group.data.map((item) => (
+                  <HistoryItem
+                    key={item.id}
+                    item={item}
+                    onItemClick={() => {
+                      if (window.innerWidth < 768) onToggle();
+                    }}
+                  />
+                ))}
+              </div>
+            ))}
+            
+            {items.length === 0 && !isLoading && (
+              <div className="px-3 py-4 text-center text-sm text-text-muted">
+                No history yet
+              </div>
+            )}
+          </div>
         </nav>
 
         <div className="p-3 border-t border-border space-y-3">
