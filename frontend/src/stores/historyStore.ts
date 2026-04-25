@@ -15,12 +15,23 @@ interface HistoryState {
     togglePin: (id: string) => Promise<void>;
     deleteItem: (id: string) => Promise<void>;
     shareItem: (id: string) => Promise<void>;
+
+    // Selection
+    isSelectionMode: boolean;
+    selectedIds: Set<string>;
+    setSelectionMode: (mode: boolean) => void;
+    toggleSelection: (id: string) => void;
+    clearSelection: () => void;
+    selectAllInGroup: (ids: string[], select: boolean) => void;
+    deleteSelected: () => Promise<void>;
 }
 
 export const useHistoryStore = create<HistoryState>((set, get) => ({
     items: [],
     isLoading: false,
     error: null,
+    isSelectionMode: false,
+    selectedIds: new Set(),
 
     fetchHistory: async () => {
         set({ isLoading: true, error: null });
@@ -109,6 +120,61 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
             useToastStore.getState().addToast('Share link copied to clipboard', 'success');
         } catch (error) {
             useToastStore.getState().addToast('Failed to share item', 'error');
+        }
+    },
+
+    setSelectionMode: (mode) => set({ isSelectionMode: mode, selectedIds: new Set() }),
+
+    toggleSelection: (id) => set((state) => {
+        const newSelected = new Set(state.selectedIds);
+        if (newSelected.has(id)) {
+            newSelected.delete(id);
+        } else {
+            newSelected.add(id);
+        }
+        return { selectedIds: newSelected };
+    }),
+
+    clearSelection: () => set({ selectedIds: new Set() }),
+
+    selectAllInGroup: (ids, select) => set((state) => {
+        const newSelected = new Set(state.selectedIds);
+        if (select) {
+            ids.forEach(id => newSelected.add(id));
+        } else {
+            ids.forEach(id => newSelected.delete(id));
+        }
+        return { selectedIds: newSelected };
+    }),
+
+    deleteSelected: async () => {
+        const { selectedIds, items } = get();
+        if (selectedIds.size === 0) return;
+
+        const previousItems = items;
+        // Optimistic update
+        set({
+            items: items.filter((item) => !selectedIds.has(item.id)),
+            selectedIds: new Set(),
+            isSelectionMode: false
+        });
+
+        try {
+            // Delete in parallel
+            await Promise.all(Array.from(selectedIds).map(id => deleteItemApi(id)));
+            useToastStore.getState().addToast(`${selectedIds.size} items deleted`, 'success');
+
+            // Check if currently open item was deleted
+            const currentProjectId = String(useSettingsStore.getState().prescriptionResult?.projectId);
+            if (selectedIds.has(currentProjectId)) {
+                useSettingsStore.getState().setPrescriptionResult(null);
+                window.location.href = '/';
+            }
+        } catch (error) {
+            // Revert on failure, we might have partially deleted but reloading history is safer
+            set({ items: previousItems });
+            useToastStore.getState().addToast('Failed to delete some items', 'error');
+            get().fetchHistory(); // Refresh to get actual state
         }
     },
 }));

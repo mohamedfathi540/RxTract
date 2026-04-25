@@ -46,7 +46,11 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
     return () => window.removeEventListener("resize", handleResize);
   }, [isOpen, onToggle]);
 
-  const { items, fetchHistory, isLoading } = useHistoryStore();
+  const { 
+    items, fetchHistory, isLoading,
+    isSelectionMode, setSelectionMode,
+    selectedIds, selectAllInGroup, deleteSelected
+  } = useHistoryStore();
 
   useEffect(() => {
     fetchHistory();
@@ -156,11 +160,46 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
           ))}
 
           <div className="pt-4 mt-2">
+            {(pinnedItems.length > 0 || recentGroups.length > 0) && (
+              <div className="px-3 flex items-center justify-between mb-3">
+                <h2 className="text-xs font-bold text-text-primary uppercase tracking-wider">History</h2>
+                <div className="flex items-center gap-3">
+                  {isSelectionMode && selectedIds.size > 0 && (
+                    <button 
+                      onClick={() => deleteSelected()} 
+                      className="text-xs font-medium text-error hover:text-red-400 transition-colors"
+                    >
+                      Delete ({selectedIds.size})
+                    </button>
+                  )}
+                  <button 
+                    onClick={() => setSelectionMode(!isSelectionMode)}
+                    className="text-xs font-medium text-primary-500 hover:text-primary-400 transition-colors"
+                  >
+                    {isSelectionMode ? 'Done' : 'Select'}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {pinnedItems.length > 0 && (
               <div className="mb-4">
-                <h3 className="px-3 text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">
-                  Pinned
-                </h3>
+                <div className="px-3 flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
+                    Pinned
+                  </h3>
+                  {isSelectionMode && (
+                    <button 
+                      onClick={() => {
+                        const allSelected = pinnedItems.every(i => selectedIds.has(i.id));
+                        selectAllInGroup(pinnedItems.map(i => i.id), !allSelected);
+                      }}
+                      className="text-[10px] text-primary-500 hover:text-primary-400"
+                    >
+                      {pinnedItems.every(i => selectedIds.has(i.id)) ? 'Deselect All' : 'Select All'}
+                    </button>
+                  )}
+                </div>
                 {pinnedItems.map((item) => (
                   <HistoryItem
                     key={item.id}
@@ -175,9 +214,22 @@ export function Sidebar({ isOpen, onToggle }: SidebarProps) {
 
             {recentGroups.map((group) => (
               <div key={group.label} className="mb-4">
-                <h3 className="px-3 text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">
-                  {group.label}
-                </h3>
+                <div className="px-3 flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
+                    {group.label}
+                  </h3>
+                  {isSelectionMode && (
+                    <button 
+                      onClick={() => {
+                        const allSelected = group.data.every(i => selectedIds.has(i.id));
+                        selectAllInGroup(group.data.map(i => i.id), !allSelected);
+                      }}
+                      className="text-[10px] text-primary-500 hover:text-primary-400"
+                    >
+                      {group.data.every(i => selectedIds.has(i.id)) ? 'Deselect All' : 'Select All'}
+                    </button>
+                  )}
+                </div>
                 {group.data.map((item) => (
                   <HistoryItem
                     key={item.id}
