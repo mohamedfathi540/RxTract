@@ -1,22 +1,22 @@
 """
-MedicineCorrectionController — Async LLM-based OCR medicine name correction.
+MedicineCorrectionController — Agentic OCR medicine name correction.
 
-Key design rules:
-- Skip correction entirely if the LLM already resolved the active_ingredient.
-  (The name is good enough — correcting it risks making it worse.)
-- Only correct when active_ingredient == "Unknown", meaning the LLM could not
-  identify the drug, which implies the OCR name is too noisy to recognise.
-- Pass candidates and active_ingredient as context so the model has real hints.
-- Use max_output_tokens=200 so multi-word brand names are never truncated.
-- Take ONLY the first non-empty line of the response to discard any explanation.
+This controller delegates correction to the PharmacyAgentController, which has
+access to:
+  - The pharmaceutical fuzzy-match database (via `correct_ocr_medicine_name` tool)
+  - The medical RAG knowledge base (via `query_medical_rag_database` tool)
+  - The agent's own clinical pharmacological knowledge (built-in LLM reasoning)
+
+Design rules:
+- Uses a dedicated internal session (`"_system_ocr_correction"`) so correction
+  calls never pollute user-facing chat sessions.
+- Sends one batched message per correction job to minimise API round-trips.
+- Falls back to the original names if the agent fails or times out.
 """
 
 import logging
 import re
-from typing import TypedDict
-
-from google import genai
-from google.genai import types
+from typing import TypedDict, Optional, Any
 
 from Controllers.SecurityController import validate_ocr_fragment, validate_user_input
 
@@ -25,34 +25,41 @@ logger = logging.getLogger("uvicorn.error")
 
 class CorrectionResult(TypedDict):
     name: str        # The (possibly corrected) medicine name
-    corrected: bool  # True = LLM returned a confident answer different from input
-    uncertain: bool  # True = LLM said UNCERTAIN
+    corrected: bool  # True = agent returned a confident answer different from input
+    uncertain: bool  # True = agent said UNCERTAIN
     error: str | None
 
 
 class MedicineCorrectionController:
     """
-    Uses Gemini Flash to correct noisy OCR medicine brand names.
-    Only call this when the primary LLM could NOT identify the active ingredient
-    (active_ingredient == "Unknown"). When the active ingredient is known, the
-    name is good enough and this controller should be skipped.
+    Delegates noisy OCR medicine name correction to the PharmacyAgentController.
 
-    Instantiate once at app startup; reuse across all requests.
+    The agent will:
+    1. Call its `correct_ocr_medicine_name` tool to search the pharmaceutical DB.
+    2. Use its own clinical knowledge for names the DB doesn't recognise.
+    3. Return UNCERTAIN for names it cannot resolve with confidence.
+
+    Instantiate once at app startup with the agent; reuse across all requests.
     """
 
+    # Dedicated system session ID — isolated from user chat sessions.
+    _SYSTEM_SESSION = "_system_ocr_correction"
 
-    def __init__(
-        self,
-        api_key: str,
-        model_id: str = "gemini-2.5-flash",
-    ):
-        self._client   = genai.Client(api_key=api_key)
-        self._model_id = model_id
-        self._config   = types.GenerateContentConfig(
-            temperature=0.0,        # fully deterministic — no creativity for name lookup
-            max_output_tokens=200,  # enough for any multi-word brand name + safety margin
-            tools=[types.Tool(google_search=types.GoogleSearch())]
+    def __init__(self, agent: Any = None, api_key: str = None, model_id: str = None):
+        """
+        Args:
+            agent:    PharmacyAgentController instance (preferred).
+                      When provided, correction is fully agentic.
+            api_key:  Kept for backward compatibility with startup code; not used.
+            model_id: Kept for backward compatibility; not used when agent is provided.
+        """
+        self._agent = agent
+        logger.info(
+            "[CorrectionController] Initialised — agent=%s",
+            "agentic" if agent else "NONE (correction disabled)",
         )
+
+    # ── Public API ───────────────────────────────────────────────────────────────
 
     async def correct_medicines_batch(
         self,
@@ -61,68 +68,43 @@ class MedicineCorrectionController:
         full_ocr_text: str = "",
     ) -> list[CorrectionResult]:
         """
-        Correct multiple noisy OCR medicine names in a single Gemini call.
-        This saves API quota and improves context awareness.
+        Correct multiple noisy OCR medicine names via a single agent message.
         """
         if not medicines_data:
             return []
 
+        if not self._agent:
+            logger.warning("[CorrectionController] No agent configured — skipping correction.")
+            return [
+                CorrectionResult(name=m["name"], corrected=False, uncertain=False, error="No agent")
+                for m in medicines_data
+            ]
+
         spec_guard = validate_user_input(doctor_specialty, max_length=100)
         safe_specialty = spec_guard.sanitized if spec_guard.is_safe else "Unknown"
 
-        # ── Build prompt ────────────────────────────────────────────────────────
-        prompt = _build_batch_prompt(
-            medicines_data=medicines_data,
-            specialty=safe_specialty,
-            full_ocr_text=full_ocr_text,
-        )
+        prompt = _build_agent_prompt(medicines_data, safe_specialty, full_ocr_text)
 
-        # ── Call Gemini ─────────────────────────────────────────────────────────
         try:
-            try:
-                response = await self._client.aio.models.generate_content(
-                    model=self._model_id,
-                    contents=prompt,
-                    config=self._config,
-                )
-            except Exception as e:
-                if "500" in str(e) or "GoogleSearch" in str(e) or "400" in str(e):
-                    logger.warning("[Correction] Batch Google Search failed, falling back: %s", e)
-                    fallback_config = types.GenerateContentConfig(temperature=0.0, max_output_tokens=1000)
-                    response = await self._client.aio.models.generate_content(
-                        model=self._model_id,
-                        contents=prompt,
-                        config=fallback_config,
-                    )
-                else:
-                    raise
+            raw_reply = await self._agent.send_message(
+                session_id=self._SYSTEM_SESSION,
+                user_message=prompt,
+            )
 
-            # Parse the batch response (expected: one name per line)
-            raw_text = (response.text or "").strip()
-            lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
-            
-            results = []
-            for i, med in enumerate(medicines_data):
-                original = med.get("name", "")
-                # If we have a line for this medicine, use it; otherwise fail gracefully
-                corrected_name = lines[i] if i < len(lines) else original
-                
-                uncertain = "UNCERTAIN" in corrected_name.upper()
-                name_val = original if uncertain else corrected_name
-                
-                results.append(CorrectionResult(
-                    name=name_val,
-                    corrected=not uncertain and name_val.lower() != original.lower(),
-                    uncertain=uncertain,
-                    error=None
-                ))
-            
-            return results
+            # Reset the system session after each correction job so state doesn't
+            # bleed between prescriptions.
+            self._agent.clear_session(self._SYSTEM_SESSION)
+
+            return _parse_agent_reply(raw_reply, medicines_data)
 
         except Exception as e:
-            logger.error("[Correction] Batch Gemini call failed: %s", e)
-            # Return original names as fallback on error
-            return [CorrectionResult(name=m["name"], corrected=False, uncertain=False, error=str(e)) for m in medicines_data]
+            logger.error("[CorrectionController] Agent correction failed: %s", e)
+            # Reset session to avoid stale state on next call
+            self._agent.clear_session(self._SYSTEM_SESSION)
+            return [
+                CorrectionResult(name=m["name"], corrected=False, uncertain=False, error=str(e))
+                for m in medicines_data
+            ]
 
     async def correct_medicine_name(
         self,
@@ -132,61 +114,81 @@ class MedicineCorrectionController:
         candidates: list[str] = None,
         full_ocr_text: str = "",
     ) -> CorrectionResult:
-        """Single medicine wrapper for batch logic."""
-        res = await self.correct_medicines_batch(
-            medicines_data=[{"name": raw_ocr_name, "active_ingredient": active_ingredient, "candidates": candidates}],
+        """Single medicine convenience wrapper."""
+        results = await self.correct_medicines_batch(
+            medicines_data=[{"name": raw_ocr_name, "active_ingredient": active_ingredient, "candidates": candidates or []}],
             doctor_specialty=doctor_specialty,
-            full_ocr_text=full_ocr_text
+            full_ocr_text=full_ocr_text,
         )
-        return res[0]
+        return results[0]
 
 
-# ── Prompt builder (module-level, not a method — no 'self' needed) ─────────────
+# ── Prompt builder ───────────────────────────────────────────────────────────────
 
-def _build_batch_prompt(medicines_data: list[dict], specialty: str, full_ocr_text: str = "") -> str:
-    """Build a prompt to correct multiple medicines at once."""
-    meds_list = ""
+def _build_agent_prompt(medicines_data: list[dict], specialty: str, full_ocr_text: str) -> str:
+    """
+    Build the single message sent to the agent to correct all medicines in a batch.
+    """
+    lines = []
     for i, m in enumerate(medicines_data):
         name = m.get("name", "Unknown")
         ingred = m.get("active_ingredient", "Unknown")
-        meds_list += f"{i+1}. Name: {name} (Ingredient Hint: {ingred})\n"
+        lines.append(f"  {i+1}. Name: \"{name}\"  |  Ingredient hint: {ingred}")
 
-    return f"""You are a senior clinical pharmacist specialising in Egyptian and international branded medicines.
-I have a list of noisy OCR-extracted medicine names from a prescription.
-Your task is to identify the correct, full pharmaceutical brand name for each one.
+    med_block = "\n".join(lines)
+    ocr_ctx   = f"\n\nFull prescription OCR context:\n{full_ocr_text}" if full_ocr_text.strip() else ""
 
-You HAVE access to Google Search. You MUST use it to verify any name that is noisy, misspelled, or unclear.
+    return f"""You are correcting noisy OCR-extracted medicine names from an Egyptian prescription.
+Doctor specialty: {specialty}{ocr_ctx}
 
---- DOCTOR SPECIALTY ---
-{specialty}
---- END SPECIALTY ---
+Medicines to correct:
+{med_block}
 
---- FULL PRESCRIPTION CONTEXT ---
-{full_ocr_text}
---- END CONTEXT ---
+For EACH medicine above:
+1. Use the `correct_ocr_medicine_name` tool to search the pharmaceutical database.
+2. If the tool returns UNCERTAIN, use your OWN clinical pharmacological knowledge to identify the most likely Egyptian or international brand name based on phonetics, spelling patterns, active ingredient hints, and doctor specialty context.
+3. If you are still unsure after both steps, output UNCERTAIN for that medicine.
 
---- MEDICINES TO CORRECT ---
-{meds_list}
---- END MEDICINES ---
+IMPORTANT OUTPUT RULES:
+- Output EXACTLY {len(medicines_data)} line(s), one per medicine, in the same order.
+- Each line must contain ONLY the corrected brand name (or UNCERTAIN).
+- Do NOT number the lines. Do NOT add explanations, bullets, or punctuation.
+- Example output for 3 medicines:
+Conventin
+Axomyelin
+UNCERTAIN
 
-INSTRUCTIONS:
-1. For each medicine in the list above, output ONLY the corrected full brand name on a NEW line.
-2. If a medicine name is already correct, output it as-is.
-3. If you are not highly confident even after searching, output: UNCERTAIN.
-4. Output EXACTLY as many lines as there are medicines in the list (one per line).
-5. DO NOT add numbers, bullets, or any explanations.
-
-CORRECTED BRAND NAMES:"""
+CORRECTED NAMES:"""
 
 
-def _first_line(text: str) -> str:
-    """Return the first non-empty, non-label line from the model response."""
-    for line in text.splitlines():
-        line = line.strip()
-        # Skip lines that are just the label we put in the prompt
-        if line and not line.upper().startswith("CORRECT BRAND NAME"):
-            # Strip any residual label prefix the model may echo
-            line = re.sub(r"^CORRECT\s+BRAND\s+NAME\s*[:：]\s*", "", line, flags=re.IGNORECASE)
-            if line:
-                return line
-    return text.strip()
+# ── Response parser ──────────────────────────────────────────────────────────────
+
+def _parse_agent_reply(reply: str, medicines_data: list[dict]) -> list[CorrectionResult]:
+    """
+    Parse the agent's plain-text reply (one name per line) into CorrectionResult objects.
+    Strips any label prefix the agent might echo (e.g. "CORRECTED NAMES:").
+    """
+    # Strip everything up to and including any label the agent might echo
+    text = re.sub(r"(?i)corrected\s+names?\s*:\s*", "", reply).strip()
+
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+
+    results = []
+    for i, med in enumerate(medicines_data):
+        original = med.get("name", "")
+        corrected_name = lines[i] if i < len(lines) else original
+
+        # Strip surrounding quotes that the agent sometimes adds
+        corrected_name = corrected_name.strip('"\'')
+
+        uncertain = "UNCERTAIN" in corrected_name.upper()
+        name_val  = original if uncertain else corrected_name
+
+        results.append(CorrectionResult(
+            name=name_val,
+            corrected=not uncertain and name_val.lower() != original.lower(),
+            uncertain=uncertain,
+            error=None,
+        ))
+
+    return results

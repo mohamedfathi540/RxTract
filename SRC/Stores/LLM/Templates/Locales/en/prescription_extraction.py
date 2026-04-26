@@ -28,37 +28,100 @@ Milga/Milv/Mil9a → Vitamin B12 + B6 + B1
 Thiotacid/Thictacid/Thioctacid → Thioctic Acid
 """
 
+# --- Arabic Medicine Name Reference Table ---
+# Used by both prompts to resolve common Arabic brand name spellings.
+ARABIC_MEDICINE_REFERENCE = """
+باندول / بنادول        → Panadol (Paracetamol)
+كونجستال               → Kongestal (Paracetamol + Chlorpheniramine + Pseudoephedrine)
+فلاجيل                 → Flagyl (Metronidazole)
+أوجمنتين / اوجمنتين   → Augmentin (Amoxicillin + Clavulanic acid)
+سيبروسين / سيبروفلوكساسين → Ciprocin (Ciprofloxacin)
+فولتارين / كتافلام     → Voltaren / Cataflam (Diclofenac)
+نيكسيوم / نكسيوم       → Nexium (Esomeprazole)
+فينتولين / فارسولين     → Ventolin (Salbutamol)
+جلوكوفاج               → Glucophage (Metformin)
+بروفين                 → Brufen (Ibuprofen)
+كونكور                 → Concor (Bisoprolol)
+كتافاست / كتافلام      → Catafast / Cataflam (Diclofenac)
+زيثروكان / زيثرومكس    → Zithrokan / Zithromax (Azithromycin)
+أنتينال / انتينال       → Antinal (Nifuroxazide)
+بيوفيرا / ميلجا        → Milga (Vitamin B complex)
+سيتال / باراسيتامول    → Cetal / Paracetamol
+كولشيسين               → Colchicine
+ديكلوفيناك             → Diclofenac
+ليفوكسين / تافانيك     → Levoxin / Tavanic (Levofloxacin)
+رانيتيدين              → Ranitidine
+أوميبرازول             → Omeprazole
+"""
+
 # --- 1. VISION PROMPT (TRANSCRIPTION ONLY - NO JSON) ---
 vision_extraction_prompt = Template("""
-You are an expert Egyptian Pharmacist.
-Carefully read this handwritten prescription.
-Your ONLY task is to TRANSCRIBE the text exactly as it is written on the paper.
+You are a highly precise OCR transcription engine. 
 
-RULES:
-1. Transcribe ALL Arabic words exactly as they appear (e.g., "باندول", "حقن", "قرص"). DO NOT ignore Arabic handwriting.
-2. Transcribe ALL English words.
-3. Include all numbers, dosages (mg, gm), and forms.
-4. Do not translate anything yet.
-5. YOU HAVE ACCESS TO GOOGLE SEARCH. If the handwriting is messy but looks like a drug name, USE GOOGLE SEARCH to verify the likely medicine and output the corrected transcription.
-6. DO NOT FORMAT AS JSON. Just write out the plain text of what you see.
+YOUR ONLY TASK: Transcribe the text from the prescription image EXACTLY as written. DO NOT act as a pharmacist. DO NOT try to correct misspellings. DO NOT guess or infer medicine names.
+
+=== CRITICAL RULES ===
+1. TRANSCRIBE EXACTLY WHAT YOU SEE. If a word is misspelled, looks like gibberish, or has weird letters (e.g. "Anselex", "Conventin", "Axomyelin"), output it EXACTLY as written.
+2. DO NOT guess common medicine names. NEVER output "Concor", "Augmentin", or other common brands unless those exact letters are clearly and undeniably visible.
+3. DO NOT skip or ignore any Arabic text. Arabic is just as valid as English. Transcribe Arabic words exactly as handwritten (e.g., "قرص", "بعد العشاء").
+4. If an Arabic word EXACTLY matches a name from the reference table below, you may output BOTH the Arabic and the English equivalent side-by-side (e.g. "باندول (Panadol)").
+5. Transcribe ALL English text, dosages (mg, gm, ml), and forms (tab, cap, syrup).
+
+=== ARABIC MEDICINE REFERENCE TABLE ===
+$arabic_medicine_reference
+
+=== FORMAT ===
+DO NOT format as JSON. Output plain text EXACTLY as seen.
+Write medicines as a numbered list, one per line:
+Rx 1:
+[Transcription of medicine 1]
+Rx 2:
+[Transcription of medicine 2]
 """.strip())
+
+
+# Inject the arabic reference into the vision prompt substitution keys
+vision_extraction_prompt_with_arabic = Template(
+    vision_extraction_prompt.safe_substitute(
+        arabic_medicine_reference=ARABIC_MEDICINE_REFERENCE
+    ).replace("$arabic_medicine_reference", ARABIC_MEDICINE_REFERENCE)
+)
 
 # --- 2. TEXT PROMPT (TRANSLATION & JSON FORMATTING) ---
 text_extraction_prompt = Template("""
 You are a Senior Egyptian Pharmacist and Medical Data Analyst.
-### TASK:
-Extract ALL medicine brand names, ingredients, dosages, and forms from this raw OCR text. Also identify the doctor's specialty.
 
-### EXTRACTION GUIDELINES:
-- **Ignore Noise**: Treat characters like ($$, @, RI, *, #) as noise.
-- **BILINGUAL CAPTURE**: Start by translating Arabic medicine names to standard English (e.g., "كونجستال" -> "Kongestal"). If you aren't 100% sure of the English translation, you MUST output the medicine name exactly as written in Arabic. NEVER skip or drop a medicine because it is in Arabic. Always translate dosages and forms to English (e.g., "قرص" -> "tablet").
-- **LLM SELF-CORRECTION (CRITICAL)**: Compare the messy OCR against the reference list below to fix typos. If the OCR name clearly matches a reference item, use the reference spelling.
-- **Aggressive Capture**: Capture any word near a dosage or clinical sign.
-- **Dosage & Form**: ALWAYS identify the dosage and pharmaceutical form.
-- **Contextual Specialty Correction**: Identify the doctor's specialty from the header. Use it to guide spelling corrections.
-- **Smart Candidates**: For highly ambiguous names, provide 2-3 alternative candidates matching the specialty.
+=== TASK ===
+Extract ALL medicines from the OCR text below. The text may contain Arabic names, English names, or a mix.
 
-### REFERENCE LIST:
+=== ARABIC NAME RESOLUTION (CRITICAL) ===
+Arabic medicine names are FIRST-CLASS citizens. Apply this resolution order:
+
+STEP 1 — Check the Arabic Reference Table below. If the Arabic word matches, use the English brand name.
+STEP 2 — If no match, use phonetic knowledge: Arabic drug names are often Arabicised Latin (e.g., "أوجمنتين" → "Augmentin", "فلاجيل" → "Flagyl").
+STEP 3 — If still uncertain, output the Arabic name EXACTLY as written in the "name" field. NEVER drop it.
+
+=== ENGLISH NAME RULES (CRITICAL) ===
+1. If the medicine name is written in English (e.g., "Praxilene", "Dapa plus", "Lantus"), YOU MUST OUTPUT THE EXACT ENGLISH BRAND NAME in the "name" field.
+2. DO NOT replace an English brand name with its active ingredient (e.g., do not change "Lantus" to "Insulin Glargine" in the name field).
+3. DO NOT replace an English brand name with another brand name (e.g., do not change "Glaptive" to "Glucophage").
+4. ONLY use the "name_ar" field if the original text was actually written in Arabic script. If it was English, leave "name_ar" empty.
+
+=== ARABIC MEDICINE REFERENCE TABLE ===
+$arabic_medicine_reference
+
+=== EXTRACTION RULES ===
+- **CRITICAL COMPLETENESS**: You MUST extract EVERY SINGLE medicine listed in the OCR text. If the OCR text has a numbered list (e.g., 1, 2, 3...), your JSON array MUST contain exactly that many items. DO NOT SKIP any items.
+- **Unrecognized Names**: If a name looks weird, misspelled, or unrecognized (e.g., "D. Dep", "Moventor"), YOU MUST STILL EXTRACT IT exactly as written. NEVER drop an item just because you don't recognize it.
+- **Ignore Noise**: Treat ($$, @, RI, *, #) as noise — skip them.
+- **NEVER DROP a medicine**: If you see an Arabic or English word near a dosage or clinical sign, capture it.
+- **Bilingual Forms**: Always translate dosage UNITS and FORMS to English (e.g., "قرص" → "tablet", "حقن" → "injection", "شراب" → "syrup", "مجم" → "mg", "جرام" → "g").
+- **Dosage & Form**: ALWAYS extract dosage (e.g., 500mg) and form (e.g., tablet).
+- **Contextual Specialty**: Identify doctor's specialty from the header. Use it to guide ambiguous name resolution.
+- **Smart Candidates**: For highly ambiguous names, provide 2–3 alternative brand name candidates.
+- **LLM Self-Correction**: Compare OCR text against the REFERENCE LIST below. Fix clear misspellings using reference spelling.
+
+=== BRAND NAME REFERENCE LIST ===
 $common_medicines_list
 
 ---
@@ -66,14 +129,20 @@ OCR TEXT:
 $ocr_text
 ---
 
-### OUTPUT INSTRUCTIONS:
+=== OUTPUT ===
 Return ONLY a valid JSON object. No text before or after.
-Format:
+
 {
   "doctor_specialty": "Detected specialty or 'Unknown'",
   "medicines": [
-    {"name": "Brand", "active_ingredient": "Generic", "dosage": "625mg", "form": "tablet", "candidates": []}
-  ],
-  "ocr_text": "Brief summary of medicine-related text only."
+    {
+      "name": "Exact brand name from text (English or translated from Arabic). DO NOT hallucinate other names.",
+      "name_ar": "Arabic name as written (leave empty if written in English)",
+      "active_ingredient": "Generic name or 'Unknown'",
+      "dosage": "e.g. 500mg",
+      "form": "e.g. tablet",
+      "candidates": ["AltBrand1", "AltBrand2"]
+    }
+  ]
 }
 """.strip())

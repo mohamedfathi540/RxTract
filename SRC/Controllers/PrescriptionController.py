@@ -30,6 +30,7 @@ from Stores.LLM.Templates.Locales.en.prescription_extraction import (
     vision_extraction_prompt,
     text_extraction_prompt,
     COMMON_MEDICINES_LIST,
+    ARABIC_MEDICINE_REFERENCE,
 )
 from Utils.MedicineMatcher import MedicineMatcher
 
@@ -123,7 +124,8 @@ class PrescriptionController(basecontroller):
             ocr_client.ocr_image,
             image_path=cleaned_path,
             prompt=vision_extraction_prompt.substitute(
-                common_medicines_list=COMMON_MEDICINES_LIST.replace("$", "$$")
+                common_medicines_list=COMMON_MEDICINES_LIST.replace("$", "$$"),
+                arabic_medicine_reference=ARABIC_MEDICINE_REFERENCE.replace("$", "$$")
             ),
             max_output_tokens=int(
                 getattr(self.settings, "OCR_MAX_OUTPUT_TOKENS", 8192)
@@ -258,7 +260,8 @@ class PrescriptionController(basecontroller):
 
         prompt = text_extraction_prompt.substitute(
             ocr_text=ocr_text.replace("$", "$$"),
-            common_medicines_list=COMMON_MEDICINES_LIST.replace("$", "$$")
+            common_medicines_list=COMMON_MEDICINES_LIST.replace("$", "$$"),
+            arabic_medicine_reference=ARABIC_MEDICINE_REFERENCE.replace("$", "$$")
         )
 
         try:

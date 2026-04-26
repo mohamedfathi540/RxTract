@@ -131,13 +131,7 @@ async def startup_span():
     # ── Pharmacy Agent Pipeline (Gemini-powered) ───────────────────
     gemini_api_key = getattr(settings, "GEMINI_API_KEY", None)
     if gemini_api_key:
-        # Medicine OCR name corrector — used inside PrescriptionController
-        correction_model = getattr(settings, "CORRECTION_MODEL_ID", "gemini-2.5-flash")
-        app.correction_ctrl = MedicineCorrectionController(
-            api_key=gemini_api_key,
-            model_id=correction_model,
-        )
-        logger.info("[Startup] MedicineCorrectionController ready (model=%s)", correction_model)
+        logger.info("[Startup] PharmacyAgentController will be initialised next (agent handles correction too)")
 
         # ── NLPController (shared singleton for agent RAG) ─────────
         from Controllers.NLPController import NLPController
@@ -165,6 +159,10 @@ async def startup_span():
             model_id=agent_model,
         )
         logger.info("[Startup] PharmacyAgentController ready (model=%s)", agent_model)
+
+        # Medicine OCR name corrector — now fully agentic, uses the same agent with tools
+        app.correction_ctrl = MedicineCorrectionController(agent=app.pharmacy_agent)
+        logger.info("[Startup] MedicineCorrectionController ready (agentic mode, model=%s)", agent_model)
     else:
         app.correction_ctrl  = None
         app.pharmacy_agent   = None

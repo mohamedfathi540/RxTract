@@ -247,6 +247,51 @@ class PharmacyAgentTools:
             
         return result
 
+    # ── Tool 6 ──────────────────────────────────────────────────────────────────
+
+    def correct_ocr_medicine_name(self, raw_name: str, ingredient_hint: str = "Unknown", specialty: str = "Unknown") -> str:
+        """
+        Corrects a single noisy or misspelled OCR-extracted medicine name.
+        This tool uses the pharmaceutical database (fuzzy search) AND your own
+        clinical knowledge to identify and return the most likely correct brand name.
+
+        Use this tool when you are asked to fix or correct OCR drug names.
+
+        Args:
+            raw_name:        The noisy or misspelled OCR name (e.g. "Axomyelin", "Conventen").
+            ingredient_hint: Active ingredient hint if known (e.g. "Amoxicillin"). Pass "Unknown" if unsure.
+            specialty:       Doctor specialty for clinical context (e.g. "Cardiology"). Pass "Unknown" if unsure.
+        """
+        guard = validate_ocr_fragment(raw_name)
+        if not guard.is_safe:
+            return "UNCERTAIN"
+
+        logger.info("[AgentTools] correct_ocr_medicine_name → name=%r, hint=%r", guard.sanitized, ingredient_hint)
+
+        from Utils.MedicineMatcher import MedicineMatcher
+        matcher = MedicineMatcher()
+
+        # 1. Try fuzzy DB match first
+        match, confidence = matcher.find_best_match(guard.sanitized)
+        if match and confidence >= 80:
+            ingredient = matcher.get_active_ingredient(match) or ingredient_hint
+            logger.info("[AgentTools] OCR correction DB hit: %r → %r (score=%d)", guard.sanitized, match, confidence)
+            return match
+
+        # 2. Try ingredient-based lookup if hint is known
+        if ingredient_hint and ingredient_hint.lower() not in ("unknown", ""):
+            candidates = matcher.find_medicines_by_ingredient(ingredient_hint)
+            if candidates:
+                # Return the closest fuzzy match within the ingredient family
+                from thefuzz import process, fuzz
+                best = process.extractOne(guard.sanitized, candidates, scorer=fuzz.token_set_ratio)
+                if best and best[1] >= 60:
+                    logger.info("[AgentTools] OCR correction ingredient hit: %r → %r (score=%d)", guard.sanitized, best[0], best[1])
+                    return best[0]
+
+        # 3. Return UNCERTAIN if no match found — agent will use its own knowledge
+        return f"UNCERTAIN:{guard.sanitized}"
+
     # ── Expose tools list ────────────────────────────────────────────────────────
 
     def as_tool_list(self) -> list:
@@ -257,4 +302,5 @@ class PharmacyAgentTools:
             self.check_drug_interactions,
             self.find_medicine_alternatives,
             self.fuzzy_search_medicine_database,
+            self.correct_ocr_medicine_name,
         ]
