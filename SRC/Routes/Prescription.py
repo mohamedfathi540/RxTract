@@ -119,7 +119,7 @@ async def analyze_prescription(request: Request, file: UploadFile,
         else:
             title = "New Prescription"
             
-        new_project = await project_model.create_project(Project(title=title))
+        new_project = await project_model.create_project(Project(title=title, user_id=user.id))
         pid = new_project.project_id
         logger.info("Created prescription project_id=%d", pid)
 
@@ -325,7 +325,7 @@ async def analyze_prescription_stream(request: Request, file: UploadFile,
             else:
                 title = "New Prescription"
                 
-            new_project = await project_model.create_project(Project(title=title))
+            new_project = await project_model.create_project(Project(title=title, user_id=user.id))
             pid = new_project.project_id
             logger.info("Created prescription project_id=%d", pid)
 
@@ -612,7 +612,8 @@ async def get_history(request: Request, user=Depends(SecurityController.get_curr
 async def rename_prescription(project_id: str, payload: RenameRequest, request: Request, user=Depends(SecurityController.get_current_user)):
     from Services.PrescriptionDBService import PrescriptionDBService
     db_service = PrescriptionDBService(request.app.db_client)
-    success = await db_service.rename_prescription(project_id, payload.title)
+    user_id = user.id if hasattr(user, "id") else None
+    success = await db_service.rename_prescription(project_id, payload.title, user_id=user_id)
     if success:
         return JSONResponse(content={"signal": "SUCCESS"})
     return JSONResponse(status_code=404, content={"signal": "NOT_FOUND"})
@@ -621,20 +622,16 @@ async def rename_prescription(project_id: str, payload: RenameRequest, request: 
 async def toggle_pin(project_id: str, request: Request, user=Depends(SecurityController.get_current_user)):
     from Services.PrescriptionDBService import PrescriptionDBService
     db_service = PrescriptionDBService(request.app.db_client)
-    is_pinned = await db_service.toggle_pin(project_id)
-    # is_pinned can be boolean False (which means it's unpinned) or a success boolean?
-    # Actually toggle_pin returns the new state, or False if failed.
-    # Wait, if it returns False on failure, how do we distinguish unpinned from failed?
-    # Let's adjust to return {"signal": "SUCCESS", "is_pinned": is_pinned} if it works
-    # It's better to just return SUCCESS and let the client assume the optimistic state.
-    # But for now, if it returns False, it might be failed. We'll return 200 SUCCESS anyway.
+    user_id = user.id if hasattr(user, "id") else None
+    is_pinned = await db_service.toggle_pin(project_id, user_id=user_id)
     return JSONResponse(content={"signal": "SUCCESS", "is_pinned": is_pinned})
 
 @prescription_router.delete("/{project_id}")
 async def delete_prescription(project_id: str, request: Request, user=Depends(SecurityController.get_current_user)):
     from Services.PrescriptionDBService import PrescriptionDBService
     db_service = PrescriptionDBService(request.app.db_client)
-    success = await db_service.soft_delete(project_id)
+    user_id = user.id if hasattr(user, "id") else None
+    success = await db_service.soft_delete(project_id, user_id=user_id)
     if success:
         return JSONResponse(content={"signal": "SUCCESS"})
     return JSONResponse(status_code=404, content={"signal": "NOT_FOUND"})
@@ -659,7 +656,8 @@ async def get_prescription(project_id: str, request: Request, user=Depends(Secur
 async def share_prescription(project_id: str, request: Request, user=Depends(SecurityController.get_current_user)):
     from Services.PrescriptionDBService import PrescriptionDBService
     db_service = PrescriptionDBService(request.app.db_client)
-    token = await db_service.generate_share_token(project_id)
+    user_id = user.id if hasattr(user, "id") else None
+    token = await db_service.generate_share_token(project_id, user_id=user_id)
     if token:
         # Construct share URL based on frontend origin if available, or just return token
         return JSONResponse(content={"signal": "SUCCESS", "share_token": token})

@@ -94,13 +94,13 @@ class PrescriptionDBService:
             return {"medicines": [], "ocr_text": "", "image_url": None}
 
     async def get_history(self, user_id: int) -> list:
-        # Since Project currently doesn't link to a User model, we'll return all non-deleted projects for now.
-        # In the future, this should filter by user_id once Project is linked to User.
+        """Return all non-deleted projects that belong to this user."""
         from sqlalchemy import desc
         try:
             async with self._db() as session:
                 result = await session.execute(
                     select(Project)
+                    .where(Project.user_id == user_id)
                     .where(Project.is_deleted == False)
                     .order_by(desc(Project.update_at))
                     .limit(100)
@@ -121,11 +121,14 @@ class PrescriptionDBService:
             logger.error("[PrescriptionDBService] get_history failed: %s", e)
             return []
 
-    async def rename_prescription(self, project_id: str, title: str) -> bool:
+    async def rename_prescription(self, project_id: str, title: str, user_id: int | None = None) -> bool:
         try:
             pid = int(project_id)
             async with self._db() as session:
-                result = await session.execute(select(Project).where(Project.project_id == pid))
+                query = select(Project).where(Project.project_id == pid)
+                if user_id is not None:
+                    query = query.where(Project.user_id == user_id)
+                result = await session.execute(query)
                 project = result.scalars().first()
                 if project:
                     project.title = title
@@ -136,11 +139,14 @@ class PrescriptionDBService:
             logger.error("[PrescriptionDBService] rename_prescription failed: %s", e)
             return False
 
-    async def toggle_pin(self, project_id: str) -> bool:
+    async def toggle_pin(self, project_id: str, user_id: int | None = None) -> bool:
         try:
             pid = int(project_id)
             async with self._db() as session:
-                result = await session.execute(select(Project).where(Project.project_id == pid))
+                query = select(Project).where(Project.project_id == pid)
+                if user_id is not None:
+                    query = query.where(Project.user_id == user_id)
+                result = await session.execute(query)
                 project = result.scalars().first()
                 if project:
                     project.is_pinned = not project.is_pinned
@@ -151,11 +157,14 @@ class PrescriptionDBService:
             logger.error("[PrescriptionDBService] toggle_pin failed: %s", e)
             return False
 
-    async def soft_delete(self, project_id: str) -> bool:
+    async def soft_delete(self, project_id: str, user_id: int | None = None) -> bool:
         try:
             pid = int(project_id)
             async with self._db() as session:
-                result = await session.execute(select(Project).where(Project.project_id == pid))
+                query = select(Project).where(Project.project_id == pid)
+                if user_id is not None:
+                    query = query.where(Project.user_id == user_id)
+                result = await session.execute(query)
                 project = result.scalars().first()
                 if project:
                     project.is_deleted = True
@@ -166,11 +175,14 @@ class PrescriptionDBService:
             logger.error("[PrescriptionDBService] soft_delete failed: %s", e)
             return False
 
-    async def generate_share_token(self, project_id: str) -> str:
+    async def generate_share_token(self, project_id: str, user_id: int | None = None) -> str:
         try:
             pid = int(project_id)
             async with self._db() as session:
-                result = await session.execute(select(Project).where(Project.project_id == pid))
+                query = select(Project).where(Project.project_id == pid)
+                if user_id is not None:
+                    query = query.where(Project.user_id == user_id)
+                result = await session.execute(query)
                 project = result.scalars().first()
                 if project:
                     if not project.share_token:

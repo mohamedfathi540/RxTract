@@ -1,5 +1,5 @@
 from .minirag_base import SQLAlchemyBase
-from sqlalchemy import Column , Integer , String , Boolean , DateTime , func
+from sqlalchemy import Column , Integer , String , Boolean , DateTime , ForeignKey , func
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
 from sqlalchemy.orm import relationship
@@ -19,6 +19,9 @@ class Project(SQLAlchemyBase) :
     is_pinned = Column(Boolean, default=False)
     is_deleted = Column(Boolean, default=False)
     share_token = Column(String, nullable=True, unique=True)
+
+    # Owner — nullable so legacy/anonymous projects are preserved
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
 
     chunks = relationship("dataChunk" , back_populates = "project")
     assets = relationship("Asset" , back_populates = "project")
