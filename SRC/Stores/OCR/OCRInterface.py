@@ -4,7 +4,11 @@ import os
 import re
 import json
 import logging
+import tempfile
+import numpy as np
+import cv2
 from PIL import Image, ImageEnhance
+from .prescription_cropper import extract_prescription
 
 logger = logging.getLogger(__name__)
 
@@ -143,38 +147,71 @@ class OCRInterface(ABC):
 
     def preprocess_image(self, file_path: str, max_width: int = 600) -> str:
         """
-        preprocess image to reduce size and prepare for OCR :
+        Preprocess image to reduce size, remove background noise, and prepare for OCR.
 
         Args:
             file_path: Path to the image file
-            max_width: Maximum width in pixels (hight auto calculated to maintain ratio)
+            max_width: Maximum width in pixels (height auto-calculated to maintain ratio)
 
-        Steps:
-        1. Convert to greyscale (reduce size and improves OCR)
-        2. Resize to reasonable width while maintaining aspect ratio
-        3. Increase contrast (improve OCR)
+        Pipeline
+        --------
+        Step 0 – Border detection & perspective warp (prescription_cropper)
+                 Detects the four corners of the prescription document,
+                 deskews it, and produces a flat top-down crop.
+                 Falls back to the raw file if detection fails.
+
+        Step 1 – Convert to grayscale
+        Step 2 – Resize to max_width (maintains aspect ratio)
+        Step 3 – Increase brightness to wash out shadows
+        Step 4 – Heavily increase contrast → near-binary appearance
         """
         try:
-            image = Image.open(file_path)
-            
-            # Convert to greyscale
+            # ── Step 0: border detection + perspective crop ──────────────────
+            # extract_prescription returns a BGR numpy array; we convert it to
+            # a PIL Image so the rest of the pipeline stays unchanged.
+            # enhance=False here because our PIL steps below do the enhancement.
+            try:
+                dir_name, file_name = os.path.split(file_path)
+                debug_path = os.path.join(dir_name, f"debug_contour_{file_name}")
+                
+                bgr_cropped = extract_prescription(
+                    file_path, 
+                    enhance=False, 
+                    debug=True, 
+                    debug_output_path=debug_path
+                )
+                # Convert BGR → RGB → PIL
+                rgb_cropped = cv2.cvtColor(bgr_cropped, cv2.COLOR_BGR2RGB)
+                image = Image.fromarray(rgb_cropped)
+                logger.info("Prescription border detected and cropped for: %s", file_path)
+            except Exception as crop_err:
+                logger.warning(
+                    "Border detection skipped (falling back to raw image): %s", crop_err
+                )
+                image = Image.open(file_path)
+
+            # ── Step 1: grayscale ────────────────────────────────────────────
             gray_image = image.convert('L')
 
-            # Resize if image is too large
+            # ── Step 2: resize if too large ──────────────────────────────────
             if gray_image.width > max_width:
                 ratio = max_width / gray_image.width
                 new_height = int(gray_image.height * ratio)
                 resample_filter = getattr(Image, 'Resampling', Image).LANCZOS
                 gray_image = gray_image.resize((max_width, new_height), resample_filter)
 
-            # Increase contrast
-            enhancer = ImageEnhance.Contrast(gray_image)
-            enhanced_image = enhancer.enhance(1.5)
-            
+            # ── Step 3: brightness (wash out background/shadows) ─────────────
+            brightness_enhancer = ImageEnhance.Brightness(gray_image)
+            bright_image = brightness_enhancer.enhance(1.4)
+
+            # ── Step 4: contrast (stark black text) ──────────────────────────
+            contrast_enhancer = ImageEnhance.Contrast(bright_image)
+            final_image = contrast_enhancer.enhance(3.5)
+
             dir_name, file_name = os.path.split(file_path)
             output_path = os.path.join(dir_name, f"preprocessed_{file_name}")
-            
-            enhanced_image.save(output_path)
+
+            final_image.save(output_path)
             logger.info("Image preprocessing complete: %s → %s", file_path, output_path)
             return output_path
 
