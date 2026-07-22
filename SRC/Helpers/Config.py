@@ -88,6 +88,7 @@ class settings (BaseSettings):
 
     # Pharmacy product search (for medicine URL scraping)
     PHARMACY_BASE_URL : str = "https://dwaprices.com/"
+    PHARMACY_LOOKUP_TIMEOUT : float = 10.0
 
 
     DEFUALT_LANGUAGE : str = "en"
@@ -122,6 +123,8 @@ class settings (BaseSettings):
     # ── Daily Usage Quotas (0 = unlimited) ──
     QUOTA_DAILY_QUERIES : int = 200
     QUOTA_DAILY_PRESCRIPTIONS : int = 30
+    QUOTA_DAILY_API_CALLS : int = 100
+    RATE_LIMIT_API : str = "30/minute"
 
     # ── Email Verification (Brevo) ──
     BREVO_API_KEY : Optional[str] = None

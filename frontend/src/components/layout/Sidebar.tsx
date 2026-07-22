@@ -3,6 +3,7 @@ import {
   ChatBubbleLeftRightIcon,
   DocumentTextIcon,
   ArrowRightStartOnRectangleIcon,
+  CodeBracketIcon,
 } from "@heroicons/react/24/outline";
 import { Menu, X } from "lucide-react";
 import { Logo } from "../ui/Logo";
@@ -16,7 +17,7 @@ import { isToday, isYesterday, isWithinInterval, subDays } from "date-fns";
 const navigation = [
   { name: "Prescription", href: "/prescription", icon: DocumentTextIcon },
   { name: "Chat", href: "/", icon: ChatBubbleLeftRightIcon },
-  // { name: "Search", href: "/search", icon: MagnifyingGlassIcon },
+  { name: "Developer", href: "/developer", icon: CodeBracketIcon },
 ];
 
 interface SidebarProps {

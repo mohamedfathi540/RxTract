@@ -8,6 +8,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { VerifyEmailPage } from "./pages/VerifyEmailPage";
 import { SharedPrescriptionPage } from "./pages/SharedPrescriptionPage";
+import { DeveloperPage } from "./pages/DeveloperPage";
 import { useAuthStore } from "./stores/authStore";
 import { ToastContainer } from "./components/ui/ToastContainer";
 
@@ -77,6 +78,7 @@ function App() {
             <Route path="search" element={<SearchPage />} />
             <Route path="prescription" element={<PrescriptionPage />} />
             <Route path="prescription/:id" element={<PrescriptionPage />} />
+            <Route path="developer" element={<DeveloperPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

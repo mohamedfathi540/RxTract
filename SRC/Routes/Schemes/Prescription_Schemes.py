@@ -17,3 +17,8 @@ class PrescriptionResponse(BaseModel):
     doctor_specialty: Optional[str] = "Unknown"  # Detected from prescription header
     ocr_text: str
     medicines: List[MedicineInfo]
+
+class ExtractResponse(BaseModel):
+    doctor_specialty: str
+    ocr_text: str
+    medicines: List[MedicineInfo]

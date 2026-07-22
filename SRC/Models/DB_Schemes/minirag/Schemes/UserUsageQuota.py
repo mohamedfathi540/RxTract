@@ -12,6 +12,7 @@ class UserUsageQuota(SQLAlchemyBase):
     upload_count = Column(Integer, default=0, server_default="0", nullable=False)
     query_count = Column(Integer, default=0, server_default="0", nullable=False)
     prescription_count = Column(Integer, default=0, server_default="0", nullable=False)
+    api_call_count = Column(Integer, default=0, server_default="0", nullable=False)
 
     __table_args__ = (
         UniqueConstraint("user_id", "date", name="uq_user_usage_date"),

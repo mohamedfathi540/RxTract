@@ -185,6 +185,7 @@ async def shutdown_span():
 # Public routes (no auth required)
 app.include_router(Base.base_router)
 app.include_router(Auth.auth_router)
+app.include_router(Prescription.public_prescription_router)
 
 # Protected routes (JWT required)
 app.include_router(Data.data_router, dependencies=[Depends(SecurityController.get_current_user)])

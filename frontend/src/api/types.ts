@@ -150,6 +150,7 @@ export interface QuotaStatusResponse {
     date: string;
     queries: QuotaUsage;
     prescriptions: QuotaUsage;
+    api_calls: QuotaUsage;
 }
 
 // Medicine Search Types

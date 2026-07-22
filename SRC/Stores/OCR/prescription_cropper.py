@@ -275,8 +275,34 @@ def extract_prescription(
 
     # ── find document quad ──
     corners = find_document_contour(edges)
-    if corners is None:
-        raise RuntimeError("No document border found in the image.")
+    
+    # ── Validation: Check if the detected quad is too small or orientation is wrong ──
+    if corners is not None:
+        h, w = image.shape[:2]
+        image_area = w * h
+        contour_area = cv2.contourArea(corners)
+        
+        # Estimate crop dimensions
+        ordered_pts = order_points(corners)
+        width_top = np.linalg.norm(ordered_pts[1] - ordered_pts[0])
+        width_bottom = np.linalg.norm(ordered_pts[2] - ordered_pts[3])
+        crop_w = max(width_top, width_bottom)
+        
+        height_left = np.linalg.norm(ordered_pts[3] - ordered_pts[0])
+        height_right = np.linalg.norm(ordered_pts[2] - ordered_pts[1])
+        crop_h = max(height_left, height_right)
+        
+        is_portrait_img = h > w
+        is_portrait_crop = crop_h > crop_w
+        
+        # If the crop is less than 60% of the image area or has a different aspect ratio orientation,
+        # it is likely a false positive (e.g., sliced in half by a crease). Fallback to full image.
+        if (contour_area < 0.60 * image_area) or (is_portrait_img != is_portrait_crop):
+            corners = np.array([[0, 0], [w, 0], [w, h], [0, h]], dtype=np.float32)
+    else:
+        h, w = image.shape[:2]
+        corners = np.array([[0, 0], [w, 0], [w, h], [0, h]], dtype=np.float32)
+
 
     # ── optional debug overlay ──
     if debug:

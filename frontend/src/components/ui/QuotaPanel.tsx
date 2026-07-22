@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useQuotaStore } from "../../stores/quotaStore";
-import { Activity, Database, Zap, Infinity as InfinityIcon } from "lucide-react";
+import { Activity, Database, Zap, Infinity as InfinityIcon, Code } from "lucide-react";
 
 interface BarProps {
   label: string;
@@ -88,6 +88,14 @@ export function QuotaPanel() {
           limit={quota.prescriptions.limit}
           icon={<Database className="w-3.5 h-3.5 text-primary-400" />}
         />
+        {quota.api_calls && (
+          <Bar
+            label="API Calls"
+            used={quota.api_calls.used}
+            limit={quota.api_calls.limit}
+            icon={<Code className="w-3.5 h-3.5 text-primary-400" />}
+          />
+        )}
       </div>
     </div>
   );

@@ -26,6 +26,11 @@ prescription_router = APIRouter(
     tags=["api_v1", "prescription"],
 )
 
+public_prescription_router = APIRouter(
+    prefix="/api/v1",
+    tags=["api_v1", "public", "extract"],
+)
+
 # Allowed image types for prescription uploads
 ALLOWED_IMAGE_TYPES = [
     "image/jpeg",
@@ -662,4 +667,145 @@ async def share_prescription(project_id: str, request: Request, user=Depends(Sec
         # Construct share URL based on frontend origin if available, or just return token
         return JSONResponse(content={"signal": "SUCCESS", "share_token": token})
     return JSONResponse(status_code=404, content={"signal": "NOT_FOUND"})
+
+
+# ==============================================================================
+# Public API-as-a-Service Endpoints
+# ==============================================================================
+
+@public_prescription_router.post("/extract")
+@limiter.limit(config_limit("RATE_LIMIT_API"))
+async def extract_prescription(
+    request: Request,
+    file: UploadFile,
+    user=Depends(SecurityController.require_api_quota())
+):
+    """
+    Public API endpoint to extract medicines from a prescription image.
+    Secured by X-API-Key header.
+    Returns only JSON (no project_id).
+    """
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "signal": ResponseSignal.FILE_TYPE_NOT_SUPPORTED.value,
+                "error": f"Unsupported file type: {file.content_type}. Allowed: {', '.join(ALLOWED_IMAGE_TYPES)}",
+            },
+        )
+
+    # Save uploaded file
+    suffix = os.path.splitext(file.filename or "upload.jpg")[-1]
+    import uuid
+    filename = f"{uuid.uuid4().hex}{suffix}"
+    UPLOAD_DIR = "/srv/dev-disk-by-uuid-e6e20b12-66d3-46ae-b011-1613226205a5/rxtract_uploads"
+    file_path = os.path.join(UPLOAD_DIR, "prescriptions", filename)
+    image_url = f"/api/v1/uploads/prescriptions/{filename}"
+
+    try:
+        content = await file.read()
+        with open(file_path, "wb") as f:
+            f.write(content)
+
+        # Run OCR pipeline
+        controller = PrescriptionController(
+            correction_ctrl=getattr(request.app, "correction_ctrl", None),
+        )
+        result = await controller.analyze_prescription(
+            file_path=file_path,
+            genration_client=request.app.genration_client,
+            ocr_client=getattr(request.app, "ocr_client", None),
+        )
+
+        medicines = result.get("medicines", [])
+        ocr_text = result.get("ocr_text", "")
+        doctor_specialty = result.get("doctor_specialty", "Unknown")
+
+        if not medicines:
+            return JSONResponse(
+                content={
+                    "doctor_specialty": doctor_specialty,
+                    "ocr_text": ocr_text,
+                    "medicines": [],
+                }
+            )
+
+        # Create project and index it (Full mode) so the consumer's user can chat later
+        project_model = await projectModel.create_instance(db_client=request.app.db_client)
+        med_names = [m["name"] for m in medicines if "name" in m]
+        title = (", ".join(med_names[:3]) + (f" +{len(med_names) - 3} more" if len(med_names) > 3 else "")) if med_names else "API Prescription"
+        
+        new_project = await project_model.create_project(Project(title=title, user_id=user.id))
+        pid = new_project.project_id
+
+        asset_model = await AssetModel.create_instance(db_client=request.app.db_client)
+        asset_record = await asset_model.create_asset(Asset(
+            asset_project_id=pid,
+            asset_type=assettypeEnum.PRESCRIPTION.value,
+            asset_name=f"prescription_{pid}",
+            asset_size=len(content),
+            asset_config={"image_url": image_url},
+        ))
+        asset_id = asset_record.asset_id
+
+        chunk_records = []
+        for i, med in enumerate(medicines):
+            chunk_text = (
+                f"Medicine: {med['name']}\\n"
+                f"Active Ingredient: {med.get('active_ingredient', 'Unknown')}\\n"
+                f"Dosage: {med.get('dosage', 'Unknown')}\\n"
+                f"Form: {med.get('form', 'Unknown')}\\n"
+            )
+            chunk_records.append(dataChunk(
+                chunk_text=chunk_text,
+                chunk_metadata={
+                    "source": "prescription_ocr",
+                    "medicine_name": med["name"],
+                    "active_ingredient": med.get("active_ingredient", "Unknown"),
+                    "dosage": med.get("dosage", "Unknown"),
+                    "form": med.get("form", "Unknown"),
+                    "image_url": med.get("image_url", ""),
+                    "product_url": med.get("product_url", ""),
+                    "price": med.get("price", ""),
+                    "candidates": med.get("candidates", []),
+                },
+                chunk_order=i + 1,
+                chunk_project_id=pid,
+                chunk_asset_id=asset_id,
+            ))
+
+        chunk_model = await ChunkModel.create_instance(db_client=request.app.db_client)
+        await chunk_model.insert_many_chunks(chunks=chunk_records)
+
+        nlp_controller = NLPController(
+            genration_client=request.app.genration_client,
+            embedding_client=request.app.embedding_client,
+            vectordb_client=request.app.vectordb_client,
+            template_parser=request.app.template_parser,
+        )
+
+        db_chunks = await chunk_model.get_project_chunks(project_id=pid, page_no=1, page_size=500)
+        if db_chunks:
+            chunks_ids = [c.chunk_id for c in db_chunks]
+            await nlp_controller.index_into_vector_db(
+                project=new_project, chunks=db_chunks, chunks_ids=chunks_ids, do_reset=True,
+            )
+
+        # Return ONLY the extracted JSON without project_id
+        return JSONResponse(
+            content={
+                "doctor_specialty": doctor_specialty,
+                "ocr_text": ocr_text,
+                "medicines": medicines,
+            }
+        )
+
+    except Exception as e:
+        logger.error("Error in API extract: %s", e, exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "error": str(e),
+            },
+        )
 

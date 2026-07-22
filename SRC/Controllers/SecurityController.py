@@ -24,8 +24,10 @@ from urllib.parse import urljoin, urlparse
 import bcrypt
 import httpx
 import jwt
+import hashlib
+import hmac
 from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import OAuth2PasswordBearer, APIKeyHeader
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy import select
@@ -40,6 +42,7 @@ logger = logging.getLogger("uvicorn.error")
 # ═══════════════════════════════════════════════════════════════════════
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 def _get_user_key(request: Request) -> str:
@@ -56,6 +59,9 @@ def _get_user_key(request: Request) -> str:
                 return f"user:{email}"
     except Exception:
         pass
+    api_key = request.headers.get("x-api-key", "")
+    if api_key:
+        return f"apikey:{api_key[:16]}"
     return get_remote_address(request)
 
 
@@ -439,12 +445,83 @@ class SecurityController(basecontroller):
 
         used_queries = quota.query_count if quota else 0
         used_prescriptions = quota.prescription_count if quota else 0
+        used_api_calls = quota.api_call_count if quota else 0
 
         return {
             "date": str(today),
             "queries": {"used": used_queries, "limit": s.QUOTA_DAILY_QUERIES},
             "prescriptions": {"used": used_prescriptions, "limit": s.QUOTA_DAILY_PRESCRIPTIONS},
+            "api_calls": {"used": used_api_calls, "limit": getattr(s, "QUOTA_DAILY_API_CALLS", 0)},
         }
+
+    # ── API Key Dependency ──────────────────────────────────────
+
+    @staticmethod
+    async def get_user_from_api_key(request: Request, api_key: str = Depends(api_key_header)):
+        if not api_key:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="API Key is missing",
+                headers={"WWW-Authenticate": "ApiKey"},
+            )
+
+        hashed_key = hashlib.sha256(api_key.encode()).hexdigest()
+        from Models.DB_Schemes import User
+
+        async with request.app.db_client() as session:
+            result = await session.execute(select(User).where(User.api_key == hashed_key))
+            user = result.scalar_one_or_none()
+
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid API Key")
+
+        if not user.is_active:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is deactivated")
+
+        return user
+
+    @staticmethod
+    def require_api_quota():
+        async def _check_api_quota(request: Request, user=Depends(SecurityController.get_user_from_api_key)):
+            from Models.DB_Schemes import UserUsageQuota
+
+            s = get_settings()
+            limit = getattr(s, "QUOTA_DAILY_API_CALLS", 0)
+            if limit <= 0:
+                return user
+
+            today = date.today()
+
+            async with request.app.db_client() as session:
+                result = await session.execute(
+                    select(UserUsageQuota).where(
+                        UserUsageQuota.user_id == user.id,
+                        UserUsageQuota.date == today,
+                    )
+                )
+                quota = result.scalar_one_or_none()
+
+                if quota is None:
+                    quota = UserUsageQuota(user_id=user.id, date=today)
+                    session.add(quota)
+                    await session.flush()
+
+                current = quota.api_call_count
+                if current >= limit:
+                    raise HTTPException(
+                        status_code=429,
+                        detail=(
+                            f"Daily API call quota exceeded ({current}/{limit}). "
+                            "Resets daily at midnight (server time, UTC)."
+                        ),
+                    )
+
+                quota.api_call_count = current + 1
+                await session.commit()
+
+            return user
+
+        return _check_api_quota
 
     # ── Email verification ──────────────────────────────────────
 

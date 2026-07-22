@@ -145,7 +145,7 @@ class OCRInterface(ABC):
 
             return medicines, ocr_text, "Unknown"
 
-    def preprocess_image(self, file_path: str, max_width: int = 600) -> str:
+    def preprocess_image(self, file_path: str, max_width: int = 400) -> str:
         """
         Preprocess image to reduce size, remove background noise, and prepare for OCR.
 
@@ -209,10 +209,15 @@ class OCRInterface(ABC):
             final_image = contrast_enhancer.enhance(3.5)
 
             dir_name, file_name = os.path.split(file_path)
-            output_path = os.path.join(dir_name, f"preprocessed_{file_name}")
+            # Ensure the output filename uses a .jpg extension so we can write JPEG compression parameters
+            base_name, _ = os.path.splitext(file_name)
+            output_path = os.path.join(dir_name, f"preprocessed_{base_name}.jpg")
 
-            final_image.save(output_path)
-            logger.info("Image preprocessing complete: %s → %s", file_path, output_path)
+            # Convert to RGB mode if not already (required for saving as JPEG)
+            jpeg_image = final_image.convert('RGB')
+            # Save with reduced quality (e.g. 60) and optimization to match real-world trained datasets
+            jpeg_image.save(output_path, "JPEG", quality=60, optimize=True)
+            logger.info("Image preprocessing and compression complete: %s → %s", file_path, output_path)
             return output_path
 
         except Exception as e:

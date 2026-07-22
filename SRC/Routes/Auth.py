@@ -3,11 +3,14 @@ Authentication routes: register, login, and email verification.
 """
 import uuid
 import logging
-from fastapi import APIRouter, HTTPException, status, Request
+from fastapi import APIRouter, HTTPException, status, Request, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
+from pydantic import BaseModel, EmailStr
+import secrets
+import hashlib
 
-from .Schemes.Auth_Schemes import UserCreate, UserLogin
+from .Schemes.Auth_Schemes import UserCreate, UserLogin, ApiKeyGenerateResponse, ApiKeyStatusResponse
 from Controllers.SecurityController import SecurityController, limiter, config_limit
 from slowapi.util import get_remote_address
 from Models.DB_Schemes import User
@@ -146,3 +149,59 @@ async def resend_verification(request: Request, body: dict):
         logger.error("Failed to resend verification email: %s", exc)
 
     return {"message": "If the account exists and is unverified, a new email has been sent."}
+
+
+# ==============================================================================
+# API Key Management (JWT Protected)
+# ==============================================================================
+
+@auth_router.post("/api-key/generate", response_model=ApiKeyGenerateResponse)
+async def generate_api_key(
+    request: Request,
+    user=Depends(SecurityController.get_current_user),
+):
+    # Generate a secure 32-byte key, prepend with prefix
+    raw_key = f"sk-rxtract-{secrets.token_hex(32)}"
+    
+    # Hash for storage
+    hashed_key = hashlib.sha256(raw_key.encode()).hexdigest()
+    
+    async with request.app.db_client() as session:
+        # Load user into current session
+        result = await session.execute(select(User).where(User.id == user.id))
+        db_user = result.scalar_one()
+        
+        db_user.api_key = hashed_key
+        await session.commit()
+        
+    return ApiKeyGenerateResponse(
+        api_key=raw_key,
+        message="API Key generated successfully. Save this key now, it will not be shown again."
+    )
+
+@auth_router.delete("/api-key/revoke")
+async def revoke_api_key(
+    request: Request,
+    user=Depends(SecurityController.get_current_user),
+):
+    async with request.app.db_client() as session:
+        result = await session.execute(select(User).where(User.id == user.id))
+        db_user = result.scalar_one()
+        
+        db_user.api_key = None
+        await session.commit()
+        
+    return {"message": "API Key revoked successfully"}
+
+@auth_router.get("/api-key/status", response_model=ApiKeyStatusResponse)
+async def get_api_key_status(
+    request: Request,
+    user=Depends(SecurityController.get_current_user),
+):
+    async with request.app.db_client() as session:
+        result = await session.execute(select(User).where(User.id == user.id))
+        db_user = result.scalar_one()
+        
+        has_key = bool(db_user.api_key)
+        
+    return ApiKeyStatusResponse(has_key=has_key)

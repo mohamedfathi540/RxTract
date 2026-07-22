@@ -433,6 +433,16 @@ class PrescriptionController(basecontroller):
                     active = openfda_result
                     logger.info("OpenFDA enhanced '%s': %s", name, active)
 
+            # 3. Cosmetic/topical products default active ingredient check
+            if active.lower() == "unknown":
+                COSMETIC_KEYWORDS = [
+                    "shamp", "shampoo", "cream", "lotion", "gel", "soap", "cleanser", 
+                    "moisturizer", "sunblock", "sunscreen", "serum", "tonic", "hair", 
+                    "conditioner", "cosmetic", "oil", "spray", "foam", "wash"
+                ]
+                if any(k in name.lower() for k in COSMETIC_KEYWORDS):
+                    active = "Cosmetic / Topical Care"
+
 
             # 4. Candidate suggestions
             candidates_data = []
@@ -487,6 +497,15 @@ class PrescriptionController(basecontroller):
 
         fallback_image = self._build_google_image_url(medicine_name)
 
+        # Smart Skip for cosmetics, hair care, and topical/skin products
+        COSMETIC_KEYWORDS = [
+            "shamp", "shampoo", "cream", "lotion", "gel", "soap", "cleanser", 
+            "moisturizer", "sunblock", "sunscreen", "serum", "tonic", "hair", 
+            "conditioner", "cosmetic", "oil", "spray", "foam", "wash"
+        ]
+        name_lower = medicine_name.lower()
+        is_cosmetic = any(k in name_lower for k in COSMETIC_KEYWORDS)
+
         # Build a meaningful search term: take up to 3 non-numeric, non-unit words.
         # A single 2-letter word like "DA" is too ambiguous — use at least 2 words when available.
         _unit_pattern = re.compile(
@@ -508,7 +527,7 @@ class PrescriptionController(basecontroller):
         )
 
         async with httpx.AsyncClient(
-            timeout=float(getattr(self.settings, "SCRAPING_TIMEOUT", 15)),
+            timeout=float(getattr(self.settings, "PHARMACY_LOOKUP_TIMEOUT", 10.0)),
             follow_redirects=True,
         ) as client:
             headers = {
@@ -519,6 +538,9 @@ class PrescriptionController(basecontroller):
                 ),
             }
 
+            dwaprices_searched = False
+            dwaprices_found = False
+
             for pharmacy_base in pharmacy_base_urls:
                 pharmacy_base = pharmacy_base.rstrip("/")
                 parsed_url = urlparse(pharmacy_base)
@@ -527,6 +549,7 @@ class PrescriptionController(basecontroller):
 
                 # 1. Dwaprices Native JSON API
                 if "dwaprices.com" in domain:
+                    dwaprices_searched = True
                     api_url = f"{pharmacy_base}/routing.php"
                     try:
                         resp = await client.post(
@@ -573,6 +596,7 @@ class PrescriptionController(basecontroller):
                                         "Pharmacy API found '%s': product=%s (hit=%r, score=%d)",
                                         medicine_name, product_url, hit_name, fuzzy_score,
                                     )
+                                    dwaprices_found = True
                                     return {
                                         "product_url": product_url,
                                         "image_url": image_url,
@@ -584,6 +608,13 @@ class PrescriptionController(basecontroller):
                         logger.debug("Pharmacy API failed for '%s' on %s: %s", medicine_name, domain, e)
 
                     continue  # Move to next URL if dwaprices failed
+
+                # Smart check for slow fallback sites:
+                # Skip them if we already queried dwaprices and didn't find the item (meaning it is a new/unregistered medicine),
+                # OR if it's cosmetic.
+                if is_cosmetic or (dwaprices_searched and not dwaprices_found):
+                    logger.info("Skipping slow e-commerce ping on %s for '%s' (new/cosmetic product)", domain, medicine_name)
+                    continue
 
                 # 2. Smart fallback URL construction based on standard e-commerce platforms
                 if "chefaa." in domain:

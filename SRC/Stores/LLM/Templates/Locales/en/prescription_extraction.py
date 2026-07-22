@@ -17,7 +17,7 @@ Kongestal/Comtrex/123 → Paracetamol + Chlorpheniramine + Pseudoephedrine
 Panadol/Cetal/Paramol → Paracetamol
 Brufen/Marcofen → Ibuprofen
 Flagyl/Amrizole → Metronidazole
-Nexium/Controloc → Esomeprazole / Pantoprazole
+Nexium/Controloc/Protofix → Esomeprazole / Pantoprazole
 Ciprocin/Ciprofloxacin → Ciprofloxacin
 Xithrone/Zithrokan → Azithromycin
 Glucophage/Cidophage → Metformin
@@ -26,6 +26,8 @@ Ventolin/Farcolin → Salbutamol
 Actifolic → Folic Acid
 Milga/Milv/Mil9a → Vitamin B12 + B6 + B1
 Thiotacid/Thictacid/Thioctacid → Thioctic Acid
+Fastcur/Fastcure/Fastkur → Omeprazole
+Mucosta → Rebamipide
 """
 
 # --- Arabic Medicine Name Reference Table ---
@@ -52,6 +54,9 @@ ARABIC_MEDICINE_REFERENCE = """
 ليفوكسين / تافانيك     → Levoxin / Tavanic (Levofloxacin)
 رانيتيدين              → Ranitidine
 أوميبرازول             → Omeprazole
+فاست كور / فاستكور     → Fastcur (Omeprazole)
+ميوكوستا / موكوستا     → Mucosta (Rebamipide)
+بروتوفكس / بروتوفيكس    → Protofix (Pantoprazole)
 """
 
 # --- 1. VISION PROMPT (TRANSCRIPTION ONLY - NO JSON) ---

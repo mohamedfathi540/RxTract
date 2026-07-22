@@ -1,10 +1,11 @@
 import { useToastStore } from "../../stores/toastStore";
 import { XMarkIcon } from "@heroicons/react/24/outline";
 
-const typeStyles = {
-  error: "bg-error/90 text-white",
-  warning: "bg-warning/90 text-black",
-  info: "bg-primary-600/90 text-white",
+const typeStyles: Record<string, string> = {
+  success: "bg-success/90 text-white border border-success/30 backdrop-blur-sm",
+  error: "bg-error/90 text-white border border-error/30 backdrop-blur-sm",
+  warning: "bg-warning/90 text-black border border-warning/30 backdrop-blur-sm",
+  info: "bg-primary-600/90 text-white border border-primary-500/30 backdrop-blur-sm",
 };
 
 export function ToastContainer() {

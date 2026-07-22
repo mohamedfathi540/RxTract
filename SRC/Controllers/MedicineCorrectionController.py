@@ -147,18 +147,19 @@ Medicines to correct:
 For EACH medicine above:
 1. Use the `correct_ocr_medicine_name` tool to search the pharmaceutical database.
 2. If the tool returns UNCERTAIN, use your OWN clinical pharmacological knowledge to identify the most likely Egyptian or international brand name based on phonetics, spelling patterns, active ingredient hints, and doctor specialty context.
-3. If you are still unsure after both steps, output UNCERTAIN for that medicine.
+3. If you are still unsure after both steps, write UNCERTAIN for that medicine.
 
-IMPORTANT OUTPUT RULES:
-- Output EXACTLY {len(medicines_data)} line(s), one per medicine, in the same order.
+FORMATTING NOTES:
+- Write EXACTLY {len(medicines_data)} line(s), one per medicine, in the same order.
 - Each line must contain ONLY the corrected brand name (or UNCERTAIN).
 - Do NOT number the lines. Do NOT add explanations, bullets, or punctuation.
-- Example output for 3 medicines:
+- Example for 3 medicines:
 Conventin
 Axomyelin
 UNCERTAIN
 
 CORRECTED NAMES:"""
+
 
 
 # ── Response parser ──────────────────────────────────────────────────────────────

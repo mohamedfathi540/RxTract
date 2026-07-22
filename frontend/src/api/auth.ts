@@ -17,12 +17,23 @@ export interface AuthResponse {
     token_type: string;
 }
 
+export interface ApiKeyStatusResponse {
+    has_key: boolean;
+}
+
+export interface ApiKeyGenerateResponse {
+    api_key: string;
+    message: string;
+}
+
 export interface MessageResponse {
     message: string;
 }
 
 // We use raw axios here (not apiClient) because auth endpoints
-// don't need the Bearer token interceptor.
+// don't need the Bearer token interceptor, EXCEPT for API Key management
+// which requires JWT token, so we'll use apiClient for those.
+import { apiClient } from './client';
 
 const getBaseUrl = () => {
     const { apiUrl } = useSettingsStore.getState();
@@ -60,6 +71,22 @@ export const authApi = {
             `${getBaseUrl()}/auth/resend-verification`,
             { email }
         );
+        return res.data;
+    },
+
+    // ── API Key Management (Requires JWT) ─────────────────────────
+    generateApiKey: async (): Promise<ApiKeyGenerateResponse> => {
+        const res = await apiClient.post<ApiKeyGenerateResponse>('/auth/api-key/generate');
+        return res.data;
+    },
+
+    revokeApiKey: async (): Promise<MessageResponse> => {
+        const res = await apiClient.delete<MessageResponse>('/auth/api-key/revoke');
+        return res.data;
+    },
+
+    getApiKeyStatus: async (): Promise<ApiKeyStatusResponse> => {
+        const res = await apiClient.get<ApiKeyStatusResponse>('/auth/api-key/status');
         return res.data;
     },
 };
