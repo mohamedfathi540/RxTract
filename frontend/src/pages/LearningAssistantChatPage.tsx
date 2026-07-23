@@ -102,7 +102,7 @@ export function LearningAssistantChatPage() {
                     : "bg-bg-tertiary text-text-primary border border-border rounded-bl-none"
                     }`}
                 >
-                  <p className="whitespace-pre-wrap">{message.content}</p>
+                  <p className="whitespace-pre-wrap" dir="auto">{message.content}</p>
                   <span className="text-xs opacity-70 mt-2 block">
                     {formatDate(message.timestamp)}
                   </span>

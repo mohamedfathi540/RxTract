@@ -246,9 +246,9 @@ export function ChatPage() {
                       }`}
                     >
                       {message.role === "user" ? (
-                        <p className="whitespace-pre-wrap">{message.content}</p>
+                        <p className="whitespace-pre-wrap" dir="auto">{message.content}</p>
                       ) : (
-                        <div className="prose-chat">
+                        <div className="prose-chat" dir="auto">
                           {message.content === "" && streamingId === message.id ? (
                             /* Typing indicator while streaming hasn't sent first chunk yet */
                             <div className="flex items-center gap-1.5 py-1">
@@ -257,7 +257,23 @@ export function ChatPage() {
                               <div className="w-2 h-2 bg-primary-400 rounded-full animate-bounce delay-200" />
                             </div>
                           ) : (
-                            <ReactMarkdown>{message.content}</ReactMarkdown>
+                            <ReactMarkdown
+                              components={{
+                                p: ({node, ...props}) => <p dir="auto" {...props} />,
+                                h1: ({node, ...props}) => <h1 dir="auto" {...props} />,
+                                h2: ({node, ...props}) => <h2 dir="auto" {...props} />,
+                                h3: ({node, ...props}) => <h3 dir="auto" {...props} />,
+                                h4: ({node, ...props}) => <h4 dir="auto" {...props} />,
+                                h5: ({node, ...props}) => <h5 dir="auto" {...props} />,
+                                h6: ({node, ...props}) => <h6 dir="auto" {...props} />,
+                                ul: ({node, ...props}) => <ul dir="auto" {...props} />,
+                                ol: ({node, ...props}) => <ol dir="auto" {...props} />,
+                                li: ({node, ...props}) => <li dir="auto" {...props} />,
+                                span: ({node, ...props}) => <span dir="auto" {...props} />,
+                              }}
+                            >
+                              {message.content}
+                            </ReactMarkdown>
                           )}
                           {/* Streaming cursor */}
                           {streamingId === message.id && message.content && (
