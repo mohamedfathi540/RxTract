@@ -38,7 +38,7 @@ export function ChatPage() {
         setIsLoadingPrescription(true);
         try {
           const data = await fetchPrescription(routeId);
-          useSettingsStore.setState({ 
+          useSettingsStore.setState({
             prescriptionResult: {
               ocrText: data.ocr_text,
               projectId: data.project_id,
@@ -46,8 +46,8 @@ export function ChatPage() {
               medicines: data.medicines,
               signal: data.signal,
               doctorSpecialty: data.doctor_specialty
-            }, 
-            chatHistory: [] 
+            },
+            chatHistory: []
           });
         } catch (error) {
           console.error("Failed to load prescription", error);
@@ -234,16 +234,14 @@ export function ChatPage() {
                 chatHistory.map((message) => (
                   <div
                     key={message.id}
-                    className={`flex ${
-                      message.role === "user" ? "justify-end" : "justify-start"
-                    }`}
+                    className={`flex ${message.role === "user" ? "justify-end" : "justify-start"
+                      }`}
                   >
                     <div
-                      className={`max-w-[90%] sm:max-w-[85%] rounded-2xl px-3 sm:px-4 py-3 ${
-                        message.role === "user"
+                      className={`max-w-[90%] sm:max-w-[85%] rounded-2xl px-3 sm:px-4 py-3 ${message.role === "user"
                           ? "bg-primary-600 text-white rounded-br-none"
                           : "bg-bg-tertiary text-text-primary border border-border rounded-bl-none"
-                      }`}
+                        }`}
                     >
                       {message.role === "user" ? (
                         <p className="whitespace-pre-wrap" dir="auto">{message.content}</p>
@@ -259,17 +257,17 @@ export function ChatPage() {
                           ) : (
                             <ReactMarkdown
                               components={{
-                                p: ({node, ...props}) => <p dir="auto" {...props} />,
-                                h1: ({node, ...props}) => <h1 dir="auto" {...props} />,
-                                h2: ({node, ...props}) => <h2 dir="auto" {...props} />,
-                                h3: ({node, ...props}) => <h3 dir="auto" {...props} />,
-                                h4: ({node, ...props}) => <h4 dir="auto" {...props} />,
-                                h5: ({node, ...props}) => <h5 dir="auto" {...props} />,
-                                h6: ({node, ...props}) => <h6 dir="auto" {...props} />,
-                                ul: ({node, ...props}) => <ul dir="auto" {...props} />,
-                                ol: ({node, ...props}) => <ol dir="auto" {...props} />,
-                                li: ({node, ...props}) => <li dir="auto" {...props} />,
-                                span: ({node, ...props}) => <span dir="auto" {...props} />,
+                                p: ({ node, ...props }) => <p dir="auto" {...props} />,
+                                h1: ({ node, ...props }) => <h1 dir="auto" {...props} />,
+                                h2: ({ node, ...props }) => <h2 dir="auto" {...props} />,
+                                h3: ({ node, ...props }) => <h3 dir="auto" {...props} />,
+                                h4: ({ node, ...props }) => <h4 dir="auto" {...props} />,
+                                h5: ({ node, ...props }) => <h5 dir="auto" {...props} />,
+                                h6: ({ node, ...props }) => <h6 dir="auto" {...props} />,
+                                ul: ({ node, ...props }) => <ul dir="auto" {...props} />,
+                                ol: ({ node, ...props }) => <ol dir="auto" {...props} />,
+                                li: ({ node, ...props }) => <li dir="auto" {...props} />,
+                                span: ({ node, ...props }) => <span dir="auto" {...props} />,
                               }}
                             >
                               {message.content}
